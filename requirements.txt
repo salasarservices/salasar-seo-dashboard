@@ -1,0 +1,5 @@
+streamlit
+google-analytics-data
+google-api-python-client
+python-dateutil
+pandas
