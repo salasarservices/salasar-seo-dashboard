@@ -5,6 +5,7 @@
 # pip install streamlit google-analytics-data google-api-python-client python-dateutil pandas
 
 import streamlit as st
+import textwrap
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
@@ -15,16 +16,9 @@ import pandas as pd
 # =========================
 # CONFIGURATION
 # =========================
-# Google Analytics 4 property ID
-PROPERTY_ID = '356205245'
-
-# Google Search Console site URL
-SC_SITE_URL = 'https://www.salasarservices.com/'
-
-# Google My Business location ID
-GMB_LOCATION_ID = '5476847919589288630'
-
-# Combined scopes for Analytics, Search Console, and GMB
+PROPERTY_ID = '356205245'  # GA4 property ID
+SC_SITE_URL = 'https://www.salasarservices.com/'  # GSC site URL
+GMB_LOCATION_ID = '5476847919589288630'  # GMB location ID
 SCOPES = [
     'https://www.googleapis.com/auth/analytics.readonly',
     'https://www.googleapis.com/auth/webmasters.readonly',
@@ -38,33 +32,21 @@ SCOPES = [
 def get_credentials():
     """
     Load service account credentials from Streamlit Secrets.
-
-    Note: In Streamlit Secrets use nested table:
-      [gcp.service_account]
-      type = "service_account"
-      project_id = "..."
-      private_key_id = "..."
-      private_key = '''-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----'''  # literal string
-      client_email = "..."
-      client_id = "..."
-      auth_uri = "..."
-      token_uri = "..."
-      auth_provider_x509_cert_url = "..."
-      client_x509_cert_url = "..."
-      universe_domain = "googleapis.com"
-
-    Then here st.secrets["gcp"]["service_account"] is a dict-like object.
+    Normalizes the private_key formatting to ensure no leading spaces.
     """
-    sa_info = st.secrets["gcp"]["service_account"]
+    # Retrieve nested service_account table
+    sa_info = st.secrets['gcp']['service_account']
+    # Normalize private_key: dedent and ensure a trailing newline
+    raw_key = sa_info.get('private_key', '')
+    formatted_key = textwrap.dedent(raw_key).strip('\n') + '\n'
+    sa_info['private_key'] = formatted_key
     creds = service_account.Credentials.from_service_account_info(
         sa_info,
         scopes=SCOPES
     )
     return creds
 
-creds = get_credentials()
-
-# Initialize Google API clients
+# Initialize clients\creds = get_credentials()
 ga4_client = BetaAnalyticsDataClient(credentials=creds)
 sc_service = build('searchconsole', 'v1', credentials=creds)
 gmb_service = build('businessprofileperformance', 'v1', credentials=creds)
@@ -72,111 +54,84 @@ gmb_service = build('businessprofileperformance', 'v1', credentials=creds)
 # =========================
 # HELPER FUNCTIONS
 # =========================
-
 def calculate_percentage_change(current, previous):
-    """
-    Return percentage change between current and previous values.
-    """
     if previous == 0:
         return None
     return (current - previous) / previous * 100
 
 
 def get_date_ranges(use_month_selector=False):
-    """
-    Determine date ranges for current and previous periods.
-    - By default: last 30 days vs. the 30 days before that.
-    - If month selector: picks a full calendar month and compares to previous month.
-    Returns: start_date, end_date, prev_start_date, prev_end_date (all YYYY-MM-DD strings)
-    """
     if use_month_selector:
-        # Build list of months from Jan 2025 to today
-        months = []
-        current = date.today()
-        start = date(2025, 1, 1)
+        months, current, start = [], date.today(), date(2025, 1, 1)
         while start <= current:
             months.append(start)
             start += relativedelta(months=1)
         sel = st.sidebar.selectbox('Select month', [m.strftime('%B %Y') for m in months])
         sel_date = datetime.strptime(sel, '%B %Y').date()
         start_date = sel_date.replace(day=1)
-        end_date = (start_date + relativedelta(months=1) - timedelta(days=1))
+        end_date = start_date + relativedelta(months=1) - timedelta(days=1)
     else:
         end_date = date.today()
         start_date = end_date - timedelta(days=30)
-
     prev_end = start_date - timedelta(days=1)
     prev_start = prev_end - (end_date - start_date)
-
     fmt = lambda d: d.strftime('%Y-%m-%d')
     return fmt(start_date), fmt(end_date), fmt(prev_start), fmt(prev_end)
 
 # =========================
 # GA4 FETCH FUNCTIONS
 # =========================
-
 def fetch_ga4_total_users(property_id, start_date, end_date):
-    request = {
-        'property': f'properties/{property_id}',
-        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
-        'metrics': [{'name': 'totalUsers'}]
-    }
-    response = ga4_client.run_report(request=request)
-    return int(response.rows[0].metric_values[0].value)
+    request = {'property': f'properties/{property_id}',
+               'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+               'metrics': [{'name': 'totalUsers'}]}
+    resp = ga4_client.run_report(request=request)
+    return int(resp.rows[0].metric_values[0].value)
 
 
 def fetch_ga4_traffic_acquisition(property_id, start_date, end_date):
-    request = {
-        'property': f'properties/{property_id}',
-        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
-        'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
-        'metrics': [{'name': 'sessions'}]
-    }
-    response = ga4_client.run_report(request=request)
-    return [{'channel': row.dimension_values[0].value, 'sessions': int(row.metric_values[0].value)} for row in response.rows]
+    request = {'property': f'properties/{property_id}',
+               'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+               'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
+               'metrics': [{'name': 'sessions'}]}
+    resp = ga4_client.run_report(request=request)
+    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
 
 
 def fetch_ga4_organic_landing(property_id, start_date, end_date):
-    request = {
-        'property': f'properties/{property_id}',
-        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
-        'dimensions': [{'name': 'landingPagePlusQueryString'}],
-        'metrics': [{'name': 'sessions'}],
-        'dimension_filter': {'filter': {'field_name': 'sessionDefaultChannelGroup', 'string_filter': {'value': 'Organic Search', 'match_type': 'EXACT'}}}
-    }
-    response = ga4_client.run_report(request=request)
-    return [{'landingPage': row.dimension_values[0].value, 'sessions': int(row.metric_values[0].value)} for row in response.rows]
+    request = {'property': f'properties/{property_id}',
+               'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+               'dimensions': [{'name': 'landingPagePlusQueryString'}],
+               'metrics': [{'name': 'sessions'}],
+               'dimension_filter': {'filter': {'field_name': 'sessionDefaultChannelGroup', 'string_filter': {'value': 'Organic Search', 'match_type': 'EXACT'}}}}
+    resp = ga4_client.run_report(request=request)
+    return [{'landingPage': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
 
 
 def fetch_ga4_active_users_by_country(property_id, start_date, end_date, top_n=5):
-    request = {
-        'property': f'properties/{property_id}',
-        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
-        'dimensions': [{'name': 'country'}],
-        'metrics': [{'name': 'activeUsers'}],
-        'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
-        'limit': top_n
-    }
-    response = ga4_client.run_report(request=request)
-    return [{'country': row.dimension_values[0].value, 'activeUsers': int(row.metric_values[0].value)} for row in response.rows]
+    request = {'property': f'properties/{property_id}',
+               'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+               'dimensions': [{'name': 'country'}],
+               'metrics': [{'name': 'activeUsers'}],
+               'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
+               'limit': top_n}
+    resp = ga4_client.run_report(request=request)
+    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
 
 def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
-    request = {
-        'property': f'properties/{property_id}',
-        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
-        'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
-        'metrics': [{'name': 'screenPageViews'}],
-        'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
-        'limit': top_n
-    }
-    response = ga4_client.run_report(request=request)
-    return [{'pageTitle': row.dimension_values[0].value, 'screenClass': row.dimension_values[1].value, 'views': int(row.metric_values[0].value)} for row in response.rows]
+    request = {'property': f'properties/{property_id}',
+               'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+               'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
+               'metrics': [{'name': 'screenPageViews'}],
+               'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
+               'limit': top_n}
+    resp = ga4_client.run_report(request=request)
+    return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
 
 # =========================
 # SEARCH CONSOLE FETCH
 # =========================
-
 def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
     body = {'startDate': start_date, 'endDate': end_date, 'dimensions': ['page', 'query'], 'rowLimit': row_limit}
     resp = sc_service.searchanalytics().query(siteUrl=site_url, body=body).execute()
@@ -185,21 +140,13 @@ def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
 # =========================
 # GOOGLE MY BUSINESS FETCH
 # =========================
-
 def fetch_gmb_metrics(location_id, start_date, end_date):
-    request_body = {
-        'locationNames': [f'locations/{location_id}'],
-        'basicRequest': {
-            'metricRequests': [],
-            'timeRange': {'startTime': f'{start_date}T00:00:00Z', 'endTime': f'{end_date}T23:59:59Z'}
-        }
-    }
+    request_body = {'locationNames': [f'locations/{location_id}'], 'basicRequest': {'metricRequests': [], 'timeRange': {'startTime': f'{start_date}T00:00:00Z', 'endTime': f'{end_date}T23:59:59Z'}}}
     return gmb_service.businessprofileperformance().report(requestBody=request_body).execute()
 
 # =========================
 # STREAMLIT APP LAYOUT
 # =========================
-
 st.title('SEO & Reporting Dashboard')
 use_month = st.sidebar.checkbox('Select Month (Jan 2025 onward)')
 start_date, end_date, prev_start, prev_end = get_date_ranges(use_month)
