@@ -32,14 +32,17 @@ SCOPES = [
 def get_credentials():
     """
     Load service account credentials from Streamlit Secrets.
-    Normalizes the private_key formatting to ensure correct PEM structure.
+    Constructs a mutable dict copy to normalize the private_key formatting.
     """
-    # Retrieve nested service_account table
-    sa_info = st.secrets['gcp']['service_account']
-    # Normalize private_key: remove indentation and ensure trailing newline
+    # Retrieve nested service_account table (immutable)
+    sa_secrets = st.secrets['gcp']['service_account']
+    # Copy into a new dict so we can modify it
+    sa_info = {k: v for k, v in sa_secrets.items()}
+    # Normalize private_key: dedent and ensure trailing newline
     raw_key = sa_info.get('private_key', '')
     formatted_key = textwrap.dedent(raw_key).strip('\n') + '\n'
     sa_info['private_key'] = formatted_key
+    # Create credentials
     creds = service_account.Credentials.from_service_account_info(
         sa_info,
         scopes=SCOPES
@@ -70,12 +73,12 @@ def calculate_percentage_change(current, previous):
 def get_date_ranges(use_month_selector=False):
     """
     Determine date ranges for current and previous periods.
-    - By default: last 30 days vs. the 30 days before that.
-    - If month selector: picks full calendar month and compares to previous month.
     Returns start_date, end_date, prev_start, prev_end as YYYY-MM-DD strings.
     """
     if use_month_selector:
-        months, current_date, start = [], date.today(), date(2025, 1, 1)
+        months = []
+        current_date = date.today()
+        start = date(2025, 1, 1)
         while start <= current_date:
             months.append(start)
             start += relativedelta(months=1)
@@ -173,7 +176,6 @@ def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
 # =========================
 # SEARCH CONSOLE FETCH
 # =========================
-
 def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
     body = {'startDate': start_date, 'endDate': end_date, 'dimensions': ['page', 'query'], 'rowLimit': row_limit}
     response = sc_service.searchanalytics().query(siteUrl=site_url, body=body).execute()
@@ -185,7 +187,6 @@ def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
 # =========================
 # GOOGLE MY BUSINESS FETCH
 # =========================
-
 def fetch_gmb_metrics(location_id, start_date, end_date):
     request_body = {
         'locationNames': [f'locations/{location_id}'],
