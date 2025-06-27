@@ -29,52 +29,28 @@ SCOPES = [
 # AUTHENTICATION
 # =========================
 @st.cache_resource
-"
-"def get_credentials():
-"
-"    """
-"
-"    Load service account credentials from Streamlit Secrets.
-"
-"    Debug prints service account content to inspect formatting.
-"
-"    """
-"
-"    # Retrieve nested service_account table (immutable)
-"
-"    sa_secrets = st.secrets['gcp']['service_account']
-"
-"    # Copy into a new dict so we can modify it
-"
-"    sa_info = {k: v for k, v in sa_secrets.items()}
-"
-"    # DEBUG: inspect loaded keys and private_key preview
-"
-"    st.write("SERVICE ACCOUNT FIELDS:", list(sa_info.keys()))
-"
-"    st.write("PRIVATE KEY PREVIEW:", sa_info.get('private_key', '')[:200])
-"
-"    # Normalize private_key: dedent and ensure trailing newline
-"
-"    raw_key = sa_info.get('private_key', '')
-"
-"    formatted_key = textwrap.dedent(raw_key).strip('
-') + '
-'
-"
-"    sa_info['private_key'] = formatted_key
-"
-"    # Create credentials
-"
-"    creds = service_account.Credentials.from_service_account_info(
-"
-"        sa_info,
-"
-"        scopes=SCOPES
-"
-"    )
-"
-"    return creds
+def get_credentials():
+    """
+    Load service account credentials from Streamlit Secrets.
+    Debug prints service account content to inspect formatting.
+    """
+    # Retrieve nested service_account table (immutable)
+    sa_secrets = st.secrets['gcp']['service_account']
+    # Copy into a new dict so we can modify it
+    sa_info = dict(sa_secrets)
+    # DEBUG: inspect loaded keys and private_key preview
+    st.write("SERVICE ACCOUNT FIELDS:", list(sa_info.keys()))
+    st.write("PRIVATE KEY PREVIEW:", sa_info.get('private_key', '')[:200])
+    # Normalize private_key: dedent and ensure trailing newline
+    raw_key = sa_info.get('private_key', '')
+    formatted_key = textwrap.dedent(raw_key).strip('\n') + '\n'
+    sa_info['private_key'] = formatted_key
+    # Create credentials
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info,
+        scopes=SCOPES
+    )
+    return creds
 
 # =========================
 # INITIALIZE API CLIENTS
@@ -104,9 +80,9 @@ def get_date_ranges(use_month_selector=False):
     """
     if use_month_selector:
         months = []
-        current_date = date.today()
+        today = date.today()
         start = date(2025, 1, 1)
-        while start <= current_date:
+        while start <= today:
             months.append(start)
             start += relativedelta(months=1)
         sel = st.sidebar.selectbox('Select month', [m.strftime('%B %Y') for m in months])
@@ -124,7 +100,6 @@ def get_date_ranges(use_month_selector=False):
 # =========================
 # GA4 FETCH FUNCTIONS
 # =========================
-
 def fetch_ga4_total_users(property_id, start_date, end_date):
     request = {
         'property': f'properties/{property_id}',
@@ -225,39 +200,4 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
             }
         }
     }
-    return gmb_service.businessprofileperformance().report(requestBody=request_body).execute()
-
-# =========================
-# STREAMLIT APP LAYOUT
-# =========================
-
-st.title('SEO & Reporting Dashboard')
-use_month = st.sidebar.checkbox('Select Month (Jan 2025 onward)')
-start_date, end_date, prev_start, prev_end = get_date_ranges(use_month)
-
-st.header('Website Analytics')
-current_users = fetch_ga4_total_users(PROPERTY_ID, start_date, end_date)
-previous_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
-delta_users = calculate_percentage_change(current_users, previous_users)
-st.subheader('Total Users')
-st.metric('Users', current_users, f'{delta_users:.2f}%')
-
-traffic_df = pd.DataFrame(fetch_ga4_traffic_acquisition(PROPERTY_ID, start_date, end_date))
-st.subheader('Traffic Acquisition by Channel')
-st.table(traffic_df)
-
-sc_df = pd.DataFrame(fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date))
-st.subheader('Google Organic Search Traffic (Clicks)')
-st.dataframe(sc_df.head(10))
-
-country_df = pd.DataFrame(fetch_ga4_active_users_by_country(PROPERTY_ID, start_date, end_date))
-st.subheader('Active Users by Country (Top 5)')
-st.table(country_df)
-
-pageviews_df = pd.DataFrame(fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date))
-st.subheader('Pages & Screens Views')
-st.table(pageviews_df)
-
-st.header('Google My Business Analytics')
-gmb_data = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
-st.write(gmb_data)
+    return gmb_service.businessprofileperformance().report(requestBody=request
