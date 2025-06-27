@@ -29,25 +29,52 @@ SCOPES = [
 # AUTHENTICATION
 # =========================
 @st.cache_resource
-def get_credentials():
-    """
-    Load service account credentials from Streamlit Secrets.
-    Constructs a mutable dict copy to normalize the private_key formatting.
-    """
-    # Retrieve nested service_account table (immutable)
-    sa_secrets = st.secrets['gcp']['service_account']
-    # Copy into a new dict so we can modify it
-    sa_info = {k: v for k, v in sa_secrets.items()}
-    # Normalize private_key: dedent and ensure trailing newline
-    raw_key = sa_info.get('private_key', '')
-    formatted_key = textwrap.dedent(raw_key).strip('\n') + '\n'
-    sa_info['private_key'] = formatted_key
-    # Create credentials
-    creds = service_account.Credentials.from_service_account_info(
-        sa_info,
-        scopes=SCOPES
-    )
-    return creds
+"
+"def get_credentials():
+"
+"    """
+"
+"    Load service account credentials from Streamlit Secrets.
+"
+"    Debug prints service account content to inspect formatting.
+"
+"    """
+"
+"    # Retrieve nested service_account table (immutable)
+"
+"    sa_secrets = st.secrets['gcp']['service_account']
+"
+"    # Copy into a new dict so we can modify it
+"
+"    sa_info = {k: v for k, v in sa_secrets.items()}
+"
+"    # DEBUG: inspect loaded keys and private_key preview
+"
+"    st.write("SERVICE ACCOUNT FIELDS:", list(sa_info.keys()))
+"
+"    st.write("PRIVATE KEY PREVIEW:", sa_info.get('private_key', '')[:200])
+"
+"    # Normalize private_key: dedent and ensure trailing newline
+"
+"    raw_key = sa_info.get('private_key', '')
+"
+"    formatted_key = textwrap.dedent(raw_key).strip('
+') + '
+'
+"
+"    sa_info['private_key'] = formatted_key
+"
+"    # Create credentials
+"
+"    creds = service_account.Credentials.from_service_account_info(
+"
+"        sa_info,
+"
+"        scopes=SCOPES
+"
+"    )
+"
+"    return creds
 
 # =========================
 # INITIALIZE API CLIENTS
