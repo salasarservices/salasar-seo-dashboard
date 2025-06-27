@@ -5,21 +5,17 @@
 # pip install streamlit google-analytics-data google-api-python-client python-dateutil pandas
 
 import streamlit as st
+import json
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
-import json
-
 
 # =========================
 # CONFIGURATION
 # =========================
-# Path to your service account key file (downloaded from Google Cloud)
-service_account.Credentials.from_service_account_file(...)
-
 # Google Analytics 4 property ID
 PROPERTY_ID = '356205245'
 
@@ -44,7 +40,6 @@ def get_credentials():
     """
     Load service account credentials from Streamlit Secrets.
     """
-    # Parse your JSON blob from the [gcp] section
     sa_info = json.loads(st.secrets["gcp"]["service_account"])
     creds = service_account.Credentials.from_service_account_info(
         sa_info,
@@ -253,7 +248,6 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
             }
         }
     }
-    # Placeholder call – update with correct method
     response = gmb_service.businessprofileperformance().report(requestBody=request_body).execute()
     return response
 
@@ -271,7 +265,6 @@ start_date, end_date, prev_start, prev_end = get_date_ranges(use_month)
 st.header('Website Analytics')
 
 # Total Users
-# Logic: Get current & previous total users, compute % change
 current_users = fetch_ga4_total_users(PROPERTY_ID, start_date, end_date)
 previous_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
 delta_users = calculate_percentage_change(current_users, previous_users)
@@ -279,25 +272,21 @@ st.subheader('Total Users')
 st.metric('Users', current_users, f'{delta_users:.2f}%')
 
 # Traffic Acquisition
-# Logic: Fetch session counts by channel group
 traffic_df = pd.DataFrame(fetch_ga4_traffic_acquisition(PROPERTY_ID, start_date, end_date))
 st.subheader('Traffic Acquisition by Channel')
 st.table(traffic_df)
 
 # Google Organic Search Traffic
-# Logic: Fetch clicks by landing page + query from Search Console
 sc_df = pd.DataFrame(fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date))
 st.subheader('Google Organic Search Traffic (Clicks)')
-st.dataframe(sc_df.head(10))  # show top 10 rows
+st.dataframe(sc_df.head(10))
 
 # Active Users by Country
-# Logic: Top 5 countries by active users
 country_df = pd.DataFrame(fetch_ga4_active_users_by_country(PROPERTY_ID, start_date, end_date))
 st.subheader('Active Users by Country (Top 5)')
 st.table(country_df)
 
 # Pages and Screens Views
-# Logic: Top pages/screens by views
 pageviews_df = pd.DataFrame(fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date))
 st.subheader('Pages & Screens Views')
 st.table(pageviews_df)
@@ -306,6 +295,5 @@ st.table(pageviews_df)
 st.header('Google My Business Analytics')
 
 # Profile Metrics
-# Logic: Fetch various GMB metrics for the location
 gmb_data = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
 st.write(gmb_data)
