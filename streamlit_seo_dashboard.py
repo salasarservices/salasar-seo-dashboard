@@ -11,12 +11,14 @@ from googleapiclient.discovery import build
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
+import json
+
 
 # =========================
 # CONFIGURATION
 # =========================
 # Path to your service account key file (downloaded from Google Cloud)
-SERVICE_ACCOUNT_FILE = 'service_account.json'
+service_account.Credentials.from_service_account_file(...)
 
 # Google Analytics 4 property ID
 PROPERTY_ID = '356205245'
@@ -40,10 +42,12 @@ SCOPES = [
 @st.cache_resource
 def get_credentials():
     """
-    Load service account credentials for all Google APIs.
+    Load service account credentials from Streamlit Secrets.
     """
-    creds = service_account.Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
+    # Parse your JSON blob from the [gcp] section
+    sa_info = json.loads(st.secrets["gcp"]["service_account"])
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info,
         scopes=SCOPES
     )
     return creds
