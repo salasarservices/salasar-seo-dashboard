@@ -39,10 +39,17 @@ def get_credentials():
     # DEBUG: inspect loaded keys & preview
     st.write("SERVICE ACCOUNT FIELDS:", list(sa_info.keys()))
     st.write("PRIVATE KEY PREVIEW (first 200 chars):", sa_info.get('private_key', '')[:200])
-    # Normalize private_key formatting
+    # Normalize private_key formatting: convert literal "\n" sequences to actual newlines
     raw_key = sa_info.get('private_key', '')
-    formatted_key = textwrap.dedent(raw_key).strip('\n') + '\n'
+    formatted_key = raw_key.replace('\n', '
+')
+    # Ensure key ends with a newline
+    if not formatted_key.endswith('
+'):
+        formatted_key += '
+'
     sa_info['private_key'] = formatted_key
+    # Create credentials
     creds = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     return creds
 
