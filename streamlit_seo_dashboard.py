@@ -1,54 +1,235 @@
+# streamlit_seo_dashboard.py
+# A minimal Streamlit-based SEO & Reporting Dashboard up to Google My Business section
+
+# Install dependencies before running:
+# pip install streamlit google-analytics-data google-api-python-client python-dateutil pandas
+
 import streamlit as st
+import textwrap
+from google.oauth2 import service_account
+from google.analytics.data_v1beta import BetaAnalyticsDataClient
+from googleapiclient.discovery import build
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
+import pandas as pd
 
-def calculate_hlv(age, retirement_age, annual_income, annual_expenses, current_savings, inflation_rate, investment_return):
-    working_years_left = retirement_age - age
-    hlv = 0
-    for year in range(1, working_years_left + 1):
-        net_income = annual_income - annual_expenses
-        discount_rate = (1 + investment_return / 100) / (1 + inflation_rate / 100) - 1
-        hlv += net_income / ((1 + discount_rate) ** year)
-    hlv -= current_savings
-    return max(hlv, 0)
+# =========================
+# CONFIGURATION
+# =========================
+PROPERTY_ID = '356205245'  # GA4 property ID
+SC_SITE_URL = 'https://www.salasarservices.com/'  # GSC site URL (must include trailing slash)
+GMB_LOCATION_ID = '5476847919589288630'  # GMB location ID
+SCOPES = [
+    'https://www.googleapis.com/auth/analytics.readonly',
+    'https://www.googleapis.com/auth/webmasters.readonly',
+    'https://www.googleapis.com/auth/business.manage'
+]
 
-st.set_page_config(page_title="Human Life Value Calculator", layout="centered")
+# =========================
+# AUTHENTICATION
+# =========================
+@st.cache_resource
+def get_credentials():
+    """
+    Load service account credentials from Streamlit Secrets.
+    Debug prints service account content to inspect formatting.
+    """
+    sa_secrets = st.secrets['gcp']['service_account']
+    sa_info = dict(sa_secrets)  # make mutable copy
+    # DEBUG: inspect loaded keys & preview
+    st.write("SERVICE ACCOUNT FIELDS:", list(sa_info.keys()))
+    st.write("PRIVATE KEY PREVIEW (first 200 chars):", sa_info.get('private_key', '')[:200])
+    # Normalize private_key formatting: convert literal "\\n" sequences to actual newlines
+    raw_key = sa_info.get('private_key', '')
+    formatted_key = raw_key.replace('\\n', '\n')
+    # Ensure key ends with a newline
+    if not formatted_key.endswith('\n'):
+        formatted_key += '\n'
+    sa_info['private_key'] = formatted_key
+    creds = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+    return creds
 
-st.markdown(
-    f"""
-    <style>
-    .main {{
-        background-color: #ffffff;
-        color: #2d448d;
-        font-family: 'Segoe UI', sans-serif;
-    }}
-    .stSlider > div > div {{
-        background-color: #2d448d;
-    }}
-    .stButton>button {{
-        background-color: #a6ce39;
-        color: white;
-        border-radius: 5px;
-        padding: 0.5em 1em;
-        font-size: 1em;
-        border: none;
-    }}
-    .stButton>button:hover {{
-        background-color: #459fda;
-    }}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# Initialize API clients
+creds = get_credentials()
+ga4_client = BetaAnalyticsDataClient(credentials=creds)
+sc_service = build('searchconsole', 'v1', credentials=creds)
+gmb_service = build('businessprofileperformance', 'v1', credentials=creds)
 
-st.title("🧮 Human Life Value (HLV) Calculator")
+# =========================
+# HELPER FUNCTIONS
+# =========================
 
-age = st.slider("Current Age", min_value=18, max_value=65, value=30)
-retirement_age = st.slider("Expected Retirement Age", min_value=50, max_value=75, value=60)
-annual_income = st.slider("Annual Income (₹)", min_value=100000, max_value=10000000, step=100000, value=1000000)
-annual_expenses = st.slider("Annual Expenses (₹)", min_value=0, max_value=annual_income, step=50000, value=400000)
-current_savings = st.slider("Current Savings (₹)", min_value=0, max_value=10000000, step=100000, value=500000)
-inflation_rate = st.slider("Expected Inflation Rate (%)", min_value=0.0, max_value=15.0, step=0.1, value=6.0)
-investment_return = st.slider("Expected Investment Return (%)", min_value=0.0, max_value=20.0, step=0.1, value=8.0)
+def calculate_percentage_change(current, previous):
+    """
+    Return percentage change between current and previous values.
+    """
+    if previous == 0:
+        return None
+    return (current - previous) / previous * 100
 
-if st.button("Calculate HLV"):
-    hlv_result = calculate_hlv(age, retirement_age, annual_income, annual_expenses, current_savings, inflation_rate, investment_return)
-    st.success(f"Your Estimated Human Life Value (HLV) is: ₹{hlv_result:,.2f}")
+
+def get_date_ranges(use_month_selector=False):
+    """
+    Determine date ranges for current and previous periods.
+    Returns start_date, end_date, prev_start, prev_end as YYYY-MM-DD strings.
+    """
+    if use_month_selector:
+        months, today, start = [], date.today(), date(2025, 1, 1)
+        while start <= today:
+            months.append(start)
+            start += relativedelta(months=1)
+        sel = st.sidebar.selectbox('Select month', [m.strftime('%B %Y') for m in months])
+        sel_date = datetime.strptime(sel, '%B %Y').date()
+        start_date = sel_date.replace(day=1)
+        end_date = start_date + relativedelta(months=1) - timedelta(days=1)
+    else:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=30)
+    prev_end = start_date - timedelta(days=1)
+    prev_start = prev_end - (end_date - start_date)
+    fmt = lambda d: d.strftime('%Y-%m-%d')
+    return fmt(start_date), fmt(end_date), fmt(prev_start), fmt(prev_end)
+
+# =========================
+# GA4 FETCH FUNCTIONS
+# =========================
+
+def fetch_ga4_total_users(property_id, start_date, end_date):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'metrics': [{'name': 'totalUsers'}]
+    }
+    resp = ga4_client.run_report(request=req)
+    return int(resp.rows[0].metric_values[0].value)
+
+
+def fetch_ga4_traffic_acquisition(property_id, start_date, end_date):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
+        'metrics': [{'name': 'sessions'}]
+    }
+    resp = ga4_client.run_report(request=req)
+    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
+
+
+def fetch_ga4_organic_landing(property_id, start_date, end_date):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'landingPagePlusQueryString'}],
+        'metrics': [{'name': 'sessions'}],
+        'dimension_filter': {
+            'filter': {
+                'field_name': 'sessionDefaultChannelGroup',
+                'string_filter': {'value': 'Organic Search', 'match_type': 'EXACT'}
+            }
+        }
+    }
+    resp = ga4_client.run_report(request=req)
+    return [{'landingPage': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
+
+
+def fetch_ga4_active_users_by_country(property_id, start_date, end_date, top_n=5):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'country'}],
+        'metrics': [{'name': 'activeUsers'}],
+        'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
+        'limit': top_n
+    }
+    resp = ga4_client.run_report(request=req)
+    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
+
+
+def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
+        'metrics': [{'name': 'screenPageViews'}],
+        'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
+        'limit': top_n
+    }
+    resp = ga4_client.run_report(request=req)
+    return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
+
+# =========================
+# SEARCH CONSOLE FETCH
+# =========================
+
+def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
+    body = {
+        'startDate': start_date,
+        'endDate': end_date,
+        'dimensions': ['page', 'query'],
+        'rowLimit': row_limit
+    }
+    resp = sc_service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+    return [{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in resp.get('rows', [])]
+
+# =========================
+# GOOGLE MY BUSINESS FETCH
+# =========================
+
+def fetch_gmb_metrics(location_id, start_date, end_date):
+    req_body = {
+        'locationNames': [f'locations/{location_id}'],
+        'basicRequest': {
+            'metricRequests': [],  # TODO: add GMB metrics
+            'timeRange': {'startTime': f'{start_date}T00:00:00Z', 'endTime': f'{end_date}T23:59:59Z'}
+        }
+    }
+    return gmb_service.businessprofileperformance().report(requestBody=req_body).execute()
+
+# =========================
+# STREAMLIT APP LAYOUT
+# =========================
+
+st.title('SEO & Reporting Dashboard')
+
+# Date selection controls
+use_month = st.sidebar.checkbox('Select Month (Jan 2025 onward)')
+start_date, end_date, prev_start, prev_end = get_date_ranges(use_month)
+
+# --- Website Analytics ---
+st.header('Website Analytics')
+
+# Total Users metric with MoM comparison
+cur_users = fetch_ga4_total_users(PROPERTY_ID, start_date, end_date)
+prev_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
+delta_users = calculate_percentage_change(cur_users, prev_users)
+st.subheader('Total Users')
+st.metric(label='Users', value=cur_users, delta=f"{delta_users:.2f}%")
+
+# Traffic Acquisition
+traf = fetch_ga4_traffic_acquisition(PROPERTY_ID, start_date, end_date)
+traf_df = pd.DataFrame(traf)
+st.subheader('Traffic Acquisition by Channel')
+st.table(traf_df)
+
+# Organic Search Traffic
+org = fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date)
+org_df = pd.DataFrame(org)
+st.subheader('Google Organic Search Traffic (Clicks)')
+st.dataframe(org_df.head(10))
+
+# Active Users by Country
+cnt = fetch_ga4_active_users_by_country(PROPERTY_ID, start_date, end_date)
+cnt_df = pd.DataFrame(cnt)
+st.subheader('Active Users by Country (Top 5)')
+st.table(cnt_df)
+
+# Page & Screen Views
+pv = fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date)
+pv_df = pd.DataFrame(pv)
+st.subheader('Pages & Screens Views')
+st.table(pv_df)
+
+# --- Google My Business Analytics ---
+st.header('Google My Business Analytics')
+gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+st.write(gmb)
