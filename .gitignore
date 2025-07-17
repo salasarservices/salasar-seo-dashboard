@@ -1,2 +1,4 @@
 # Environment variables
 .env
+# in .gitignore
+.env
