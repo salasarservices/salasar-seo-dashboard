@@ -20,6 +20,23 @@ st.set_page_config(
     page_title='SEO & Reporting Dashboard',
     layout='wide'
 )
+# =========================
+# CUSTOM STYLES
+# =========================
+st.markdown("""
+<style>
+/* Remove extra spacing above progress bars */
+.stProgress {margin: 0 !important; padding: 0 !important;}
+/* Metric font styling */
+.stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
+    font-size: 32px !important;
+    font-weight: bold !important;
+    color: #000000 !important;
+}
+/* Table cell text color */
+.styled-table td {color: #000000 !important;}
+</style>
+""", unsafe_allow_html=True)
 
 # =========================
 # AUTHENTICATION
