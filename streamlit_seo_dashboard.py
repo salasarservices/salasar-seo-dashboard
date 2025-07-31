@@ -142,13 +142,15 @@ def fetch_sc_organic(site, sd, ed, limit=500):
     return [{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in rows]
 
 # =========================
-# GMB via HTTP Function
+# =========================
+# GOOGLE MY BUSINESS FETCH via python client
 # =========================
 
 def fetch_gmb_metrics(location_id, sd, ed):
-    # Use getDailyMetricsTimeSeries REST endpoint
-    url = f'https://businessprofileperformance.googleapis.com/v1/locations/{location_id}:getDailyMetricsTimeSeries'
-    body = {
+    """
+    Fetch GMB metrics via Business Profile Performance API's getDailyMetricsTimeSeries method.
+    """
+    req_body = {
         'basicRequest': {
             'timeRange': {
                 'startTime': f'{sd}T00:00:00Z',
@@ -159,14 +161,19 @@ def fetch_gmb_metrics(location_id, sd, ed):
             ]
         }
     }
-    headers = {'Authorization': f'Bearer {creds.token}', 'Content-Type': 'application/json'}
-    resp = requests.post(url, json=body, headers=headers)
-    if resp.status_code != 200:
-        return {'error': f'Status {resp.status_code}: {resp.text}'}
-    return resp.json()
+    try:
+        response = gmb_service.locations().getDailyMetricsTimeSeries(
+            name=f'locations/{location_id}',
+            body=req_body
+        ).execute()
+        return response
+    except HttpError as err:
+        status = getattr(err, 'status_code', 'Unknown')
+        details = getattr(err, 'error_details', '') or str(err)
+        return {'error': f'HTTP {status}: {details}' }
+    except Exception as e:
+        return {'error': str(e)}
 
-# =========================
-# STREAMLIT LAYOUT
 # =========================
 
 st.title('SEO & Reporting Dashboard')
