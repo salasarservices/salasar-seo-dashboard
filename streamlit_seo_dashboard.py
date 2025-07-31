@@ -25,16 +25,27 @@ st.set_page_config(
 # =========================
 st.markdown("""
 <style>
-/* Remove extra spacing above progress bars */
-.stProgress {margin: 0 !important; padding: 0 !important;}
-/* Metric font styling */
-.stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
-    font-size: 32px !important;
-    font-weight: bold !important;
-    color: #000000 !important;
-}
-/* Table cell text color */
-.styled-table td {color: #000000 !important;}
+    body {font-family: 'Arial', sans-serif; background-color: #ffffff;}
+    .metric-container {padding: 0.5rem 1rem 1rem 1rem; background-color: #f9f9f9; border-radius: 8px; margin-bottom: 1rem;}
+    .section-header {margin-top: 2rem; margin-bottom: 1rem;}
+    /* Styled Table */
+    .styled-table {border-collapse: collapse; width: 100%; border-radius: 5px 5px 0 0; overflow: hidden;}
+    .styled-table thead tr {background-color: #2d448d; color: #ffffff; text-align: left; border-bottom: 4px solid #459fda;}
+    .styled-table th, .styled-table td {padding: 12px 15px;}
+    .styled-table tbody tr {border-bottom: 1px solid #dddddd;}
+    .styled-table tbody tr:nth-of-type(even) {background-color: #f3f3f3;}
+    .styled-table tbody tr:nth-of-type(odd) {background-color: #ffffff;}
+    .styled-table tbody tr:hover {background-color: #a6ce39;}
+    /* Metric font styling */
+    .stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
+        font-size: 32px !important;
+        font-weight: bold !important;
+        color: #000000 !important;
+    }
+    /* Progress bar spacing */
+    .stProgress {margin: 0 !important; padding: 0 !important;}
+    /* Table cell text color */
+    .styled-table td {color: #000000 !important;}
 </style>
 """, unsafe_allow_html=True)
 
