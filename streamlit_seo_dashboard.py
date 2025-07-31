@@ -136,13 +136,27 @@ def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
 
 
 def fetch_gmb_metrics(location_id, start_date, end_date):
-    # Ensure Business Profile API is enabled and service account has access
+    """
+    Fetch Google My Business metrics for a location using the MultiDailyMetricsTimeSeries API.
+    Returns dict with metrics or an 'error' key if something goes wrong.
+    """
     req_body = {'dailyMetricsOptions': {
         'timeRange': {'startTime': f'{start_date}T00:00:00Z', 'endTime': f'{end_date}T23:59:59Z'},
         'metricRequests': [{'metric': 'ALL'}]
     }}
-    resp = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(name=f'locations/{location_id}', body=req_body).execute()
-    return resp
+    try:
+        resp = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(
+            name=f'locations/{location_id}',
+            body=req_body
+        ).execute()
+        return resp
+    except HttpError as err:
+        # Return error details for display
+        status = getattr(err, 'status_code', None)
+        details = getattr(err, 'error_details', None) or str(err)
+        return {'error': f'HTTP {status}: {details}'}
+    except Exception as err:
+        return {'error': str(err)}
 
 # =========================
 # STREAMLIT APP LAYOUT
@@ -191,8 +205,8 @@ except InvalidArgument:
 
 # Google My Business Analytics
 st.header('Google My Business Analytics')
-try:
-    gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+if isinstance(gmb, dict) and 'error' in gmb:
+    st.error(f"Google My Business API Error: {gmb['error']}")
+else:
     st.json(gmb)
-except Exception:
-    st.error('Unable to load Google My Business data')
