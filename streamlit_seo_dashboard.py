@@ -116,17 +116,36 @@ def fetch_sc_organic(site, sd, ed, limit=500):
 # GMB FETCH
 # =========================
 
-def fetch_gmb_metrics(lid, sd, ed):
-    body={'dailyMetricsOptions':{'timeRange':{'startTime':f'{sd}T00:00:00Z','endTime':f'{ed}T23:59:59Z'},'metricRequests':[{'metric':'ALL'}]}}
-    client=gmb_service.locations()
+def fetch_gmb_metrics(location_id, start_date, end_date):
+    """
+    Fetch Google My Business metrics for a location using GMB API.
+    Uses fetchMultiDailyMetricsTimeSeries with 'parent' parameter only.
+    """
+    req_body = {
+        'dailyMetricsOptions': {
+            'timeRange': {
+                'startTime': f'{start_date}T00:00:00Z',
+                'endTime': f'{end_date}T23:59:59Z'
+            },
+            'metricRequests': [
+                {'metric': 'ALL'}
+            ]
+        }
+    }
     try:
-        return client.fetchMultiDailyMetricsTimeSeries(parent=f'locations/{lid}',body=body).execute()
-    except TypeError:
-        return client.fetchMultiDailyMetricsTimeSeries(name=f'locations/{lid}',body=body).execute()
+        # Only use 'parent' arg; 'name' is not supported
+        response = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(
+            parent=f'locations/{location_id}',
+            body=req_body
+        ).execute()
+        return response
     except HttpError as err:
-        return {'error':f'Status {err.status_code}: {err.error_details or err}'}
-    except Exception as e:
-        return {'error':str(e)}
+        # Return structured error for display
+        status = getattr(err, 'status_code', 'Unknown')
+        details = getattr(err, 'error_details', '') or str(err)
+        return {'error': f'HTTP {status}: {details}'}
+    except Exception as err:
+        return {'error': str(err)}
 
 # =========================
 # STREAMLIT LAYOUT
@@ -172,4 +191,3 @@ if isinstance(gmb,dict) and 'error' in gmb:
     st.error(f"GMB API Error: {gmb['error']}")
 else:
     st.json(gmb)
-
