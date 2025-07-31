@@ -143,7 +143,17 @@ def get_active_users_by_country(pid, sd, ed, top_n=5):
     return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
 # =========================
-# STYLING UTILS REMOVED
+# STYLING UTILITIES
+# =========================
+
+def render_table(df):
+    """
+    Render a pandas DataFrame as an HTML table with the styled-table class.
+    """
+    html = df.to_html(index=False, classes='styled-table')
+    st.markdown(html, unsafe_allow_html=True)
+
+# =========================
 # =========================
 
 # =========================
