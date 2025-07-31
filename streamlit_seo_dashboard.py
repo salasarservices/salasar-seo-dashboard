@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
+from google.api_core.exceptions import InvalidArgument
 from googleapiclient.errors import HttpError
 
 # =========================
@@ -229,10 +230,13 @@ st.subheader('Active Users by Country (Top 5)')
 st.table(cnt_df)
 
 # Page & Screen Views
-pv = fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date)
-pv_df = pd.DataFrame(pv)
 st.subheader('Pages & Screens Views')
-st.table(pv_df)
+try:
+    pv = fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date)
+    pv_df = pd.DataFrame(pv)
+    st.table(pv_df)
+except InvalidArgument:
+    st.error("GA4 API error: 'pageTitle' and 'screenClass' or 'screenPageViews' may not be available for this property.")
 
 # --- Google My Business Analytics ---
 st.header('Google My Business Analytics')
