@@ -148,6 +148,11 @@ def fetch_ga4_active_users_by_country(property_id, start_date, end_date, top_n=5
 
 
 def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
+    """
+    Fetch top N page titles + screen classes by views.
+    Falls back to pagePath if pageTitle+screenClass not available.
+    """
+    # Primary request: pageTitle + screenClass
     req = {
         'property': f'properties/{property_id}',
         'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
@@ -156,8 +161,30 @@ def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
         'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
         'limit': top_n
     }
-    resp = ga4_client.run_report(request=req)
-    return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
+    try:
+        resp = ga4_client.run_report(request=req)
+        return [
+            {'pageTitle': r.dimension_values[0].value,
+             'screenClass': r.dimension_values[1].value,
+             'views': int(r.metric_values[0].value)}
+            for r in resp.rows
+        ]
+    except InvalidArgument:
+        # Fallback: only pagePath
+        req2 = {
+            'property': f'properties/{property_id}',
+            'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+            'dimensions': [{'name': 'pagePath'}],
+            'metrics': [{'name': 'screenPageViews'}],
+            'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
+            'limit': top_n
+        }
+        resp2 = ga4_client.run_report(request=req2)
+        return [
+            {'pagePath': r.dimension_values[0].value,
+             'views': int(r.metric_values[0].value)}
+            for r in resp2.rows
+        ]
 
 # =========================
 # SEARCH CONSOLE FETCH
