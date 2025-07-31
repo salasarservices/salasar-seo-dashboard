@@ -1,221 +1,235 @@
-# app.py
-# Streamlit Social Media Analytics Dashboard
-# This app fetches Facebook and LinkedIn metrics and displays month-over-month comparisons.
+# streamlit_seo_dashboard.py
+# A minimal Streamlit-based SEO & Reporting Dashboard up to Google My Business section
 
-import os
-import requests
-import datetime
-import pandas as pd
+# Install dependencies before running:
+# pip install streamlit google-analytics-data google-api-python-client python-dateutil pandas
+
 import streamlit as st
-from dotenv import load_dotenv
+import textwrap
+from google.oauth2 import service_account
+from google.analytics.data_v1beta import BetaAnalyticsDataClient
+from googleapiclient.discovery import build
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
+import pandas as pd
 
-# --------------------------------------
-# Load environment variables from .env file
-# --------------------------------------
-load_dotenv()
+# =========================
+# CONFIGURATION
+# =========================
+PROPERTY_ID = '356205245'  # GA4 property ID
+SC_SITE_URL = 'https://www.salasarservices.com/'  # GSC site URL (must include trailing slash)
+GMB_LOCATION_ID = '5476847919589288630'  # GMB location ID
+SCOPES = [
+    'https://www.googleapis.com/auth/analytics.readonly',
+    'https://www.googleapis.com/auth/webmasters.readonly',
+    'https://www.googleapis.com/auth/business.manage'
+]
 
-# Facebook credentials
-FB_PAGE_ID = os.getenv("FB_PAGE_ID")
-FB_ACCESS_TOKEN = os.getenv("FB_ACCESS_TOKEN")
-FB_API_BASE = "https://graph.facebook.com/v12.0"
-
-# LinkedIn credentials
-LI_ACCESS_TOKEN = os.getenv("LI_ACCESS_TOKEN")
-LI_ORG_URN = os.getenv("LI_ORG_URN")
-LI_API_BASE = "https://api.linkedin.com/v2"
-
-li_headers = {
-    "Authorization": f"Bearer {LI_ACCESS_TOKEN}"
-}
-
-# --------------------------------------
-# Helper: Date range calculation
-# --------------------------------------
-def get_date_ranges(days=30):
+# =========================
+# AUTHENTICATION
+# =========================
+@st.cache_resource
+def get_credentials():
     """
-    Return tuples for current period and previous period as (since, until).
+    Load service account credentials from Streamlit Secrets.
+    Debug prints service account content to inspect formatting.
     """
-    today = datetime.date.today()
-    until = today
-    since = today - datetime.timedelta(days=days)
-    prev_until = since
-    prev_since = since - datetime.timedelta(days=days)
-    return (since, until), (prev_since, prev_until)
+    sa_secrets = st.secrets['gcp']['service_account']
+    sa_info = dict(sa_secrets)  # make mutable copy
+    # DEBUG: inspect loaded keys & preview
+    st.write("SERVICE ACCOUNT FIELDS:", list(sa_info.keys()))
+    st.write("PRIVATE KEY PREVIEW (first 200 chars):", sa_info.get('private_key', '')[:200])
+    # Normalize private_key formatting: convert literal "\\n" sequences to actual newlines
+    raw_key = sa_info.get('private_key', '')
+    formatted_key = raw_key.replace('\\n', '\n')
+    # Ensure key ends with a newline
+    if not formatted_key.endswith('\n'):
+        formatted_key += '\n'
+    sa_info['private_key'] = formatted_key
+    creds = service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+    return creds
 
-# --------------------------------------
-# Section: Facebook metrics
-# --------------------------------------
-# Function to fetch aggregated insight for a metric over a date range
-def fb_get_insight(metric, since, until):
+# Initialize API clients
+creds = get_credentials()
+ga4_client = BetaAnalyticsDataClient(credentials=creds)
+sc_service = build('searchconsole', 'v1', credentials=creds)
+gmb_service = build('businessprofileperformance', 'v1', credentials=creds)
+
+# =========================
+# HELPER FUNCTIONS
+# =========================
+
+def calculate_percentage_change(current, previous):
     """
-    Fetch Facebook Page insight metric values for a given date range.
-    Returns the sum of all daily values.
+    Return percentage change between current and previous values.
     """
-    url = f"{FB_API_BASE}/{FB_PAGE_ID}/insights"
-    params = {
-        "metric": metric,
-        "since": since.isoformat(),
-        "until": until.isoformat(),
-        "access_token": FB_ACCESS_TOKEN
+    if previous == 0:
+        return None
+    return (current - previous) / previous * 100
+
+
+def get_date_ranges(use_month_selector=False):
+    """
+    Determine date ranges for current and previous periods.
+    Returns start_date, end_date, prev_start, prev_end as YYYY-MM-DD strings.
+    """
+    if use_month_selector:
+        months, today, start = [], date.today(), date(2025, 1, 1)
+        while start <= today:
+            months.append(start)
+            start += relativedelta(months=1)
+        sel = st.sidebar.selectbox('Select month', [m.strftime('%B %Y') for m in months])
+        sel_date = datetime.strptime(sel, '%B %Y').date()
+        start_date = sel_date.replace(day=1)
+        end_date = start_date + relativedelta(months=1) - timedelta(days=1)
+    else:
+        end_date = date.today()
+        start_date = end_date - timedelta(days=30)
+    prev_end = start_date - timedelta(days=1)
+    prev_start = prev_end - (end_date - start_date)
+    fmt = lambda d: d.strftime('%Y-%m-%d')
+    return fmt(start_date), fmt(end_date), fmt(prev_start), fmt(prev_end)
+
+# =========================
+# GA4 FETCH FUNCTIONS
+# =========================
+
+def fetch_ga4_total_users(property_id, start_date, end_date):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'metrics': [{'name': 'totalUsers'}]
     }
-    resp = requests.get(url, params=params)
-    data = resp.json()
-    values = [item.get("value", 0) 
-              for item in data.get("data", [{}])[0].get("values", [])]
-    return sum(values)
+    resp = ga4_client.run_report(request=req)
+    return int(resp.rows[0].metric_values[0].value)
 
-# Compute Facebook metrics and month-over-month changes
-(current_range, prev_range) = get_date_ranges(30)
-fb_metrics = {
-    "Post Reach": "page_posts_impressions_unique",
-    "Post Engagement": "page_engaged_users",
-    "New Page Likes": "page_fan_adds_unique",
-    # 'page_fans' gives total fans; new followers usually align with likes
-    "New Page Followers": "page_fan_adds_unique"
-}
 
-fb_results = {}
-for label, metric_name in fb_metrics.items():
-    curr = fb_get_insight(metric_name, *current_range)
-    prev = fb_get_insight(metric_name, *prev_range)
-    change = ((curr - prev) / prev * 100) if prev != 0 else None
-    fb_results[label] = {"current": curr, "previous": prev, "change": change}
-
-# Fetch breakdowns: Age & Gender and Top Cities
-# Facebook provides these as 'lifetime' snapshots
-
-def fb_get_breakdown(metric, period="lifetime"):
-    """
-    Fetch Facebook breakdown metrics (demographics or location).
-    """
-    url = f"{FB_API_BASE}/{FB_PAGE_ID}/insights"
-    params = {
-        "metric": metric,
-        "period": period,
-        "access_token": FB_ACCESS_TOKEN
+def fetch_ga4_traffic_acquisition(property_id, start_date, end_date):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
+        'metrics': [{'name': 'sessions'}]
     }
-    resp = requests.get(url, params=params)
-    data = resp.json()
-    return data.get("data", [{}])[0].get("values", [{}])[0].get("value", {})
+    resp = ga4_client.run_report(request=req)
+    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
 
-age_gender = fb_get_breakdown("page_fans_gender_age")
-city_counts = fb_get_breakdown("page_fans_city")
 
-# --------------------------------------
-# Section: LinkedIn metrics
-# --------------------------------------
-def li_get_page_stats(start, end, org_urn=LI_ORG_URN):
-    """
-    Fetch page_views and uniquePageViews over a date range.
-    """
-    params = {
-        "q": "organization",
-        "organization": org_urn,
-        "timeIntervals": f"(timeRange:(start:{start.strftime('%Y%m%d')},end:{end.strftime('%Y%m%d')}),timeGranularityType:DAY)"
+def fetch_ga4_organic_landing(property_id, start_date, end_date):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'landingPagePlusQueryString'}],
+        'metrics': [{'name': 'sessions'}],
+        'dimension_filter': {
+            'filter': {
+                'field_name': 'sessionDefaultChannelGroup',
+                'string_filter': {'value': 'Organic Search', 'match_type': 'EXACT'}
+            }
+        }
     }
-    url = f"{LI_API_BASE}/organizationalEntityPageStatistics"
-    resp = requests.get(url, headers=li_headers, params=params)
-    data = resp.json()
-    views = sum(elem.get("views", 0) for elem in data.get("elements", []))
-    uniques = sum(elem.get("uniquePageViews", 0) for elem in data.get("elements", []))
-    return views, uniques
+    resp = ga4_client.run_report(request=req)
+    return [{'landingPage': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
 
 
-def li_get_follower_stats(start, end, org_urn=LI_ORG_URN):
-    """
-    Fetch total and new followers over a date range.
-    """
-    params = {
-        "q": "organizationalEntityFollowerStatistics",
-        "organizationalEntity": org_urn,
-        "timeIntervals": f"(timeRange:(start:{start.strftime('%Y%m%d')},end:{end.strftime('%Y%m%d')}),timeGranularityType:DAY)"
+def fetch_ga4_active_users_by_country(property_id, start_date, end_date, top_n=5):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'country'}],
+        'metrics': [{'name': 'activeUsers'}],
+        'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
+        'limit': top_n
     }
-    url = f"{LI_API_BASE}/organizationalEntityFollowerStatistics"
-    resp = requests.get(url, headers=li_headers, params=params)
-    data = resp.json()
-    new_followers = sum(elem.get("newFollowerCount", 0) for elem in data.get("elements", []))
-    total_followers = data.get("paging", {}).get("total", None)
-    return total_followers, new_followers
+    resp = ga4_client.run_report(request=req)
+    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
 
-def li_get_post_engagement(start, end, org_urn=LI_ORG_URN):
-    """
-    Fetch share count and engagement rate over a date range.
-    """
-    params = {
-        "q": "organizationShares",
-        "organization": org_urn,
-        "sharesPerOwner": False,
-        "timeIntervals": f"(timeRange:(start:{start.strftime('%Y%m%d')},end:{end.strftime('%Y%m%d')}),timeGranularityType:DAY)"
+def fetch_ga4_pageviews(property_id, start_date, end_date, top_n=10):
+    req = {
+        'property': f'properties/{property_id}',
+        'date_ranges': [{'start_date': start_date, 'end_date': end_date}],
+        'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
+        'metrics': [{'name': 'screenPageViews'}],
+        'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
+        'limit': top_n
     }
-    url = f"{LI_API_BASE}/organizationalEntityShareStatistics"
-    resp = requests.get(url, headers=li_headers, params=params)
-    data = resp.json()
-    total_shares = sum(elem.get("totalShareStatistics", {}).get("shareCount", 0) for elem in data.get("elements", []))
-    total_engagements = sum(elem.get("totalShareStatistics", {}).get("engagement", 0) for elem in data.get("elements", []))
-    rate = (total_engagements / total_shares) if total_shares else None
-    return total_shares, rate
+    resp = ga4_client.run_report(request=req)
+    return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
 
-# Compute LinkedIn metrics
-(li_curr_range, li_prev_range) = get_date_ranges(30)
-li_results = {}
-# Visitor Highlights
-cv, cu = li_get_page_stats(*li_curr_range)
-pv, pu = li_get_page_stats(*li_prev_range)
-li_results['Visitor Highlights'] = {'Page Views': {'current': cv, 'previous': pv},
-                                   'Unique Visitors': {'current': cu, 'previous': pu}}
-# Follower Highlights
-ct, cn = li_get_follower_stats(*li_curr_range)
-pt, pn = li_get_follower_stats(*li_prev_range)
-li_results['Follower Highlights'] = {'Total Followers': {'current': ct, 'previous': pt},
-                                    'New Followers': {'current': cn, 'previous': pn}}
-# Competitor Highlights (self)
-csh, cr = li_get_post_engagement(*li_curr_range)
-psh, pr = li_get_post_engagement(*li_prev_range)
-li_results['Competitor Highlights'] = {'Post Count': {'current': csh, 'previous': psh},
-                                      'Engagement Rate': {'current': cr, 'previous': pr}}
+# =========================
+# SEARCH CONSOLE FETCH
+# =========================
 
-# --------------------------------------
-# Section: Streamlit UI
-# --------------------------------------
-st.title("Social Media Analytics")
+def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
+    body = {
+        'startDate': start_date,
+        'endDate': end_date,
+        'dimensions': ['page', 'query'],
+        'rowLimit': row_limit
+    }
+    resp = sc_service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+    return [{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in resp.get('rows', [])]
 
-# Facebook Section
-st.header("Facebook")
-for metric, vals in fb_results.items():
-    st.subheader(metric)
-    delta = f"{vals['change']:.2f}%" if vals['change'] is not None else "N/A"
-    st.metric(label="Last 30 Days", value=vals['current'], delta=delta)
+# =========================
+# GOOGLE MY BUSINESS FETCH
+# =========================
 
-# Audience age/gender breakdown
-st.subheader("Audience - Age & Gender")
-age_gender_df = pd.DataFrame(age_gender.items(), columns=["Age & Gender", "Count"])
-st.table(age_gender_df)
+def fetch_gmb_metrics(location_id, start_date, end_date):
+    req_body = {
+        'locationNames': [f'locations/{location_id}'],
+        'basicRequest': {
+            'metricRequests': [],  # TODO: add GMB metrics
+            'timeRange': {'startTime': f'{start_date}T00:00:00Z', 'endTime': f'{end_date}T23:59:59Z'}
+        }
+    }
+    return gmb_service.businessprofileperformance().report(requestBody=req_body).execute()
 
-# Location: top 10 cities
-st.subheader("Location - Top 10 Cities")
-city_df = pd.DataFrame(city_counts.items(), columns=["City", "Count"]).sort_values("Count", ascending=False).head(10)
-st.table(city_df)
+# =========================
+# STREAMLIT APP LAYOUT
+# =========================
 
-# LinkedIn Section
-st.header("LinkedIn")
-# Visitor highlights
-st.subheader("Visitor Highlights")
-for label, v in li_results['Visitor Highlights'].items():
-    change = ((v['current'] - v['previous']) / v['previous'] * 100) if v['previous'] else None
-    delta = f"{change:.2f}%" if change is not None else "N/A"
-    st.metric(label, v['current'], delta)
+st.title('SEO & Reporting Dashboard')
 
-# Follower highlights
-st.subheader("Follower Highlights")
-for label, v in li_results['Follower Highlights'].items():
-    change = ((v['current'] - v['previous']) / v['previous'] * 100) if v['previous'] else None
-    delta = f"{change:.2f}%" if change is not None else "N/A"
-    st.metric(label, v['current'], delta)
+# Date selection controls
+use_month = st.sidebar.checkbox('Select Month (Jan 2025 onward)')
+start_date, end_date, prev_start, prev_end = get_date_ranges(use_month)
 
-# Competitor highlights
-st.subheader("Competitor Highlights")
-for label, v in li_results['Competitor Highlights'].items():
-    change = ((v['current'] - v['previous']) / v['previous'] * 100) if v['previous'] else None
-    delta = f"{change:.2f}%" if change is not None else "N/A"
-    st.metric(label, v['current'], delta)
+# --- Website Analytics ---
+st.header('Website Analytics')
+
+# Total Users metric with MoM comparison
+cur_users = fetch_ga4_total_users(PROPERTY_ID, start_date, end_date)
+prev_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
+delta_users = calculate_percentage_change(cur_users, prev_users)
+st.subheader('Total Users')
+st.metric(label='Users', value=cur_users, delta=f"{delta_users:.2f}%")
+
+# Traffic Acquisition
+traf = fetch_ga4_traffic_acquisition(PROPERTY_ID, start_date, end_date)
+traf_df = pd.DataFrame(traf)
+st.subheader('Traffic Acquisition by Channel')
+st.table(traf_df)
+
+# Organic Search Traffic
+org = fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date)
+org_df = pd.DataFrame(org)
+st.subheader('Google Organic Search Traffic (Clicks)')
+st.dataframe(org_df.head(10))
+
+# Active Users by Country
+cnt = fetch_ga4_active_users_by_country(PROPERTY_ID, start_date, end_date)
+cnt_df = pd.DataFrame(cnt)
+st.subheader('Active Users by Country (Top 5)')
+st.table(cnt_df)
+
+# Page & Screen Views
+pv = fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date)
+pv_df = pd.DataFrame(pv)
+st.subheader('Pages & Screens Views')
+st.table(pv_df)
+
+# --- Google My Business Analytics ---
+st.header('Google My Business Analytics')
+gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+st.write(gmb)
