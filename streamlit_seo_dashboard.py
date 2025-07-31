@@ -196,11 +196,12 @@ with col1:
     cur = get_total_users(PROPERTY_ID, sd, ed)
     prev = get_total_users(PROPERTY_ID, psd, ped)
     delta = pct_change(cur, prev)
-    p = max(0, min(int(delta), 100))
-    bar = st.progress(0)
-    for i in range(p+1): bar.progress(i)
     st.markdown('<div class="metric-container">', unsafe_allow_html=True)
     st.metric('Total Users', cur, f'{delta:.2f}%')
+    p = max(0, min(int(delta), 100))
+    bar = st.progress(0)
+    for i in range(p+1):
+        bar.progress(i)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Sessions
