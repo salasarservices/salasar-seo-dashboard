@@ -150,6 +150,7 @@ def fetch_sc_organic(site, sd, ed, limit=500):
 # GOOGLE MY BUSINESS FETCH via python client
 # =========================
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gmb_metrics(location_id, sd, ed):
     """
     Fetch Google My Business metrics for a location using Python client.
