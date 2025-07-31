@@ -203,91 +203,43 @@ def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
 # =========================
 # GOOGLE MY BUSINESS FETCH
 # =========================
+from googleapiclient.errors import HttpError
 
 def fetch_gmb_metrics(location_id, start_date, end_date):
     """
-    Fetch Google My Business metrics for a location between dates using the Business Profile Performance API.
+    Fetch Google My Business metrics for a location using the MultiDailyMetricsTimeSeries API.
+    Replace 'ALL' with specific metrics as needed, e.g. 'VIEWS', 'SEARCH_IMPRESSIONS'.
     """
-    # Build the request body for the API
     req_body = {
-        'basicRequest': {
-            'metricRequests': [
-                # TODO: e.g. {'metric': 'VIEWS'}, {'metric': 'SEARCH_IMPRESSIONS'}, etc.
-            ],
+        'dailyMetricsOptions': {
             'timeRange': {
                 'startTime': f'{start_date}T00:00:00Z',
                 'endTime': f'{end_date}T23:59:59Z'
-            }
+            },
+            'metricRequests': [
+                {'metric': 'ALL'}
+            ]
         }
     }
-    # The Business Profile Performance API expects the location in the path
-    loc_resource = gmb_service.locations()
-    # DEBUG: list available methods on the locations() resource
-    st.write("Available GMB methods:", [m for m in dir(loc_resource) if not m.startswith('_')])
-    # Attempt to call reportInsights if available
     try:
-        response = loc_resource.reportInsights(
+        resp = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(
             name=f'locations/{location_id}',
             body=req_body
         ).execute()
-        return response
-    except AttributeError:
-        st.error("GMB API error: reportInsights() method not found on locations(); check the available methods above and adjust accordingly.")
+        return resp
+    except HttpError as err:
+        st.error("GMB API error: ensure the service account has management access on the Business Profile and the API is enabled.")
         return {}
-
 
 # =========================
 # STREAMLIT APP LAYOUT
 # =========================
 
-st.title('SEO & Reporting Dashboard')
+# ... later in the layout ...
 
-# Date selection controls
-use_month = st.sidebar.checkbox('Select Month (Jan 2025 onward)')
-start_date, end_date, prev_start, prev_end = get_date_ranges(use_month)
-
-# --- Website Analytics ---
-st.header('Website Analytics')
-
-# Total Users metric with MoM comparison
-cur_users = fetch_ga4_total_users(PROPERTY_ID, start_date, end_date)
-prev_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
-delta_users = calculate_percentage_change(cur_users, prev_users)
-st.subheader('Total Users')
-st.metric(label='Users', value=cur_users, delta=f"{delta_users:.2f}%")
-
-# Traffic Acquisition
-traf = fetch_ga4_traffic_acquisition(PROPERTY_ID, start_date, end_date)
-traf_df = pd.DataFrame(traf)
-st.subheader('Traffic Acquisition by Channel')
-st.table(traf_df)
-
-# Organic Search Traffic
-st.subheader('Google Organic Search Traffic (Clicks)')
-try:
-    org_rows = fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date)
-    org_df = pd.DataFrame(org_rows)
-    st.dataframe(org_df.head(10))
-except HttpError:
-    st.error("Search Console API error: please ensure the service account has been granted permission in Search Console and the API is enabled.")
-    st.error("Search Console API error: please ensure the service account has been granted permission in Search Console and the API is enabled.")
-
-# Active Users by Country
-cnt = fetch_ga4_active_users_by_country(PROPERTY_ID, start_date, end_date)
-cnt_df = pd.DataFrame(cnt)
-st.subheader('Active Users by Country (Top 5)')
-st.table(cnt_df)
-
-# Page & Screen Views
-st.subheader('Pages & Screens Views')
-try:
-    pv = fetch_ga4_pageviews(PROPERTY_ID, start_date, end_date)
-    pv_df = pd.DataFrame(pv)
-    st.table(pv_df)
-except InvalidArgument:
-    st.error("GA4 API error: 'pageTitle' and 'screenClass' or 'screenPageViews' may not be available for this property.")
-
-# --- Google My Business Analytics ---
 st.header('Google My Business Analytics')
-gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
-st.write(gmb)
+try:
+    gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+    st.json(gmb)
+except Exception:
+    st.error("Unable to load Google My Business data.")
