@@ -1,11 +1,7 @@
 # streamlit_seo_dashboard.py
-# A minimal Streamlit-based SEO & Social Media Reporting Dashboard (up to GMB section)
-
-# Install dependencies:
-# pip install streamlit google-analytics-data google-api-python-client python-dateutil pandas requests
+# Minimalistic SEO & Reporting Dashboard with clean, wide layout
 
 import streamlit as st
-import textwrap
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
@@ -15,62 +11,60 @@ from google.auth.transport.requests import Request as GAuthRequest
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
-import requests
 
 # =========================
-# CONFIGURATION
+# PAGE CONFIGURATION & STYLES
 # =========================
-PROPERTY_ID = '356205245'             # GA4 property ID
-SC_SITE_URL = 'https://www.salasarservices.com/'  # GSC property URL (with trailing slash)
-GMB_LOCATION_ID = '5476847919589288630' # GMB Location ID
+st.set_page_config(
+    page_title='SEO & Reporting Dashboard',
+    layout='wide'
+)
+st.markdown(
+    """
+    <style>
+    body {font-family: 'Arial', sans-serif;}
+    .metric-container {padding: 1rem; background-color: #f9f9f9; border-radius: 8px;}
+    .section-header {margin-top: 2rem; margin-bottom: 1rem;}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# =========================
+# CONFIGURATION & AUTH
+# =========================
+PROPERTY_ID = '356205245'
+SC_SITE_URL = 'https://www.salasarservices.com/'
 SCOPES = [
     'https://www.googleapis.com/auth/analytics.readonly',
-    'https://www.googleapis.com/auth/webmasters.readonly',
-    'https://www.googleapis.com/auth/business.manage'
+    'https://www.googleapis.com/auth/webmasters.readonly'
 ]
 
-# =========================
-# AUTHENTICATION
-# =========================
 @st.cache_resource
 def get_credentials():
-    """
-    Load and normalize service account credentials from Streamlit secrets.
-    """
     sa = st.secrets['gcp']['service_account']
     info = dict(sa)
-    # Convert literal "\\n" to real newlines in private_key
     pk = info.get('private_key', '').replace('\\n', '\n')
     if not pk.endswith('\n'):
         pk += '\n'
     info['private_key'] = pk
-    return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    creds.refresh(GAuthRequest())
+    return creds
 
 creds = get_credentials()
-# Refresh token before HTTP calls
-creds.refresh(GAuthRequest())
-
-ga4_client = BetaAnalyticsDataClient(credentials=creds)
-sc_service = build('searchconsole', 'v1', credentials=creds)
-# Initialize GMB client
-from googleapiclient.discovery import build as build_gmb
-# Use separate build to avoid shadowing
-gmb_service = build_gmb('businessprofileperformance', 'v1', credentials=creds)
-# gmb_service not used for HTTP fallback
+ga4 = BetaAnalyticsDataClient(credentials=creds)
+sc = build('searchconsole', 'v1', credentials=creds)
 
 # =========================
 # HELPERS
 # =========================
-
-def calculate_percentage_change(cur, prev):
-    if prev == 0:
-        return None
-    return (cur - prev) / prev * 100
+def pct_change(cur, prev):
+    return None if prev == 0 else (cur - prev) / prev * 100
 
 
-def get_date_ranges(use_month=False):
-    if use_month:
-        # Full calendar month picker
+def date_ranges(month_sel=False):
+    if month_sel:
         months, today, d = [], date.today(), date(2025,1,1)
         while d <= today:
             months.append(d)
@@ -86,137 +80,91 @@ def get_date_ranges(use_month=False):
     fmt = lambda x: x.strftime('%Y-%m-%d')
     return fmt(sd), fmt(ed), fmt(psd), fmt(ped)
 
-# =========================
-# GA4 FUNCTIONS
-# =========================
+# Fetch functions
 
-def fetch_ga4_total_users(pid, sd, ed):
+@st.cache_data(ttl=3600)
+def get_total_users(pid, sd, ed):
     req = {'property': f'properties/{pid}',
            'date_ranges': [{'start_date': sd, 'end_date': ed}],
            'metrics': [{'name': 'totalUsers'}]}
-    resp = ga4_client.run_report(request=req)
-    return int(resp.rows[0].metric_values[0].value)
+    return int(ga4.run_report(request=req).rows[0].metric_values[0].value)
 
-
-def fetch_ga4_traffic(pid, sd, ed):
+@st.cache_data(ttl=3600)
+def get_traffic(pid, sd, ed):
     req = {'property': f'properties/{pid}',
            'date_ranges': [{'start_date': sd, 'end_date': ed}],
            'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
            'metrics': [{'name': 'sessions'}]}
-    resp = ga4_client.run_report(request=req)
-    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
+    rows = ga4.run_report(request=req).rows
+    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in rows]
 
-
-def fetch_ga4_pageviews(pid, sd, ed, top_n=10):
-    # Try pageTitle + screenClass
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
-           'metrics': [{'name': 'screenPageViews'}],
-           'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
-           'limit': top_n}
-    try:
-        resp = ga4_client.run_report(request=req)
-        return [{'pageTitle': r.dimension_values[0].value,
-                 'screenClass': r.dimension_values[1].value,
-                 'views': int(r.metric_values[0].value)} for r in resp.rows]
-    except InvalidArgument:
-        # Fallback to pagePath
-        req2 = {'property': f'properties/{pid}',
-                'date_ranges': [{'start_date': sd, 'end_date': ed}],
-                'dimensions': [{'name': 'pagePath'}],
-                'metrics': [{'name': 'screenPageViews'}],
-                'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
-                'limit': top_n}
-        resp2 = ga4_client.run_report(request=req2)
-        return [{'pagePath': r.dimension_values[0].value,
-                 'views': int(r.metric_values[0].value)} for r in resp2.rows]
-
-# =========================
-# Search Console Function
-# =========================
-
-def fetch_sc_organic(site, sd, ed, limit=500):
+@st.cache_data(ttl=3600)
+def get_search_console(site, sd, ed, limit=10):
     body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page', 'query'], 'rowLimit': limit}
-    try:
-        resp = sc_service.searchanalytics().query(siteUrl=site, body=body).execute()
-        rows = resp.get('rows', [])
-    except HttpError as e:
-        raise
-    return [{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in rows]
+    resp = sc.searchanalytics().query(siteUrl=site, body=body).execute()
+    return resp.get('rows', [])
 
 # =========================
+# SIDEBAR CONTROLS
 # =========================
-# GOOGLE MY BUSINESS FETCH via python client
-# =========================
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_gmb_metrics(location_id, sd, ed):
-    """
-    Fetch Google My Business metrics for a location using Python client.
-    Uses fetchMultiDailyMetricsTimeSeries method with specific metrics.
-    """
-    # Parse dates
-    y1, m1, d1 = map(int, sd.split('-'))
-    y2, m2, d2 = map(int, ed.split('-'))
-    # Define metrics to retrieve
-    metrics = ['CALL_CLICKS', 'WEBSITE_CLICKS', 'BUSINESS_DIRECTION_REQUESTS']
-    try:
-        resp = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(
-            location=f'locations/{location_id}',
-            dailyMetrics=metrics,
-            dailyRange_startDate_year=y1,
-            dailyRange_startDate_month=m1,
-            dailyRange_startDate_day=d1,
-            dailyRange_endDate_year=y2,
-            dailyRange_endDate_month=m2,
-            dailyRange_endDate_day=d2
-        ).execute()
-        return resp
-    except HttpError as err:
-        status = getattr(err, 'status_code', 'Unknown')
-        details = getattr(err, 'error_details', '') or str(err)
-        return {'error': f'HTTP {status}: {details}'}
-    except Exception as e:
-        return {'error': str(e)}
+with st.sidebar:
+    st.title('Filters')
+    month_sel = st.checkbox('Select Month (vs last 30 days)')
+    sd, ed, psd, ped = date_ranges(month_sel)
 
 # =========================
+# METRIC CARDS (3 columns)
+# =========================
+st.write('<div class="section-header"><h2>Website Analytics</h2></div>', unsafe_allow_html=True)
+col1, col2, col3 = st.columns(3)
+# Total Users
+with col1:
+    cur = get_total_users(PROPERTY_ID, sd, ed)
+    prev = get_total_users(PROPERTY_ID, psd, ped)
+    delta = pct_change(cur, prev)
+    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+    st.metric('Total Users', cur, f'{delta:.2f}%')
+    st.markdown('</div>', unsafe_allow_html=True)
+# Sessions
+with col2:
+    traf = get_traffic(PROPERTY_ID, sd, ed)
+    total_sess = sum(item['sessions'] for item in traf)
+    prev_sess = sum(item['sessions'] for item in get_traffic(PROPERTY_ID, psd, ped))
+    delta2 = pct_change(total_sess, prev_sess)
+    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+    st.metric('Sessions', total_sess, f'{delta2:.2f}%')
+    st.markdown('</div>', unsafe_allow_html=True)
+# Organic Clicks
+with col3:
+    sc_rows = get_search_console(SC_SITE_URL, sd, ed)
+    clicks = sum(r.get('clicks', 0) for r in sc_rows)
+    prev_clicks = sum(r.get('clicks', 0) for r in get_search_console(SC_SITE_URL, psd, ped))
+    delta3 = pct_change(clicks, prev_clicks)
+    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
+    st.metric('Organic Clicks', clicks, f'{delta3:.2f}%')
+    st.markdown('</div>', unsafe_allow_html=True)
 
-st.title('SEO & Reporting Dashboard')
-use_month = st.sidebar.checkbox('Select Month (Jan 2025 onward)')
-sd, ed, ps, ped = get_date_ranges(use_month)
+# =========================
+# DETAILED TABLES
+# =========================
+st.write('<div class="section-header"><h3>Traffic Acquisition by Channel</h3></div>', unsafe_allow_html=True)
+st.table(pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed)))
 
-# Website Analytics
-st.header('Website Analytics')
-users = fetch_ga4_total_users(PROPERTY_ID, sd, ed)
-prev_users = fetch_ga4_total_users(PROPERTY_ID, ps, ped)
-delta = calculate_percentage_change(users, prev_users)
-st.subheader('Total Users')
-st.metric('Users', users, f'{delta:.2f}%')
+st.write('<div class="section-header"><h3>Top 10 Organic Queries</h3></div>', unsafe_allow_html=True)
+sc_df = pd.DataFrame([{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in sc_rows])
+st.dataframe(sc_df.head(10))
 
-st.subheader('Traffic Acquisition by Channel')
-st.table(pd.DataFrame(fetch_ga4_traffic(PROPERTY_ID, sd, ed)))
+st.write('<div class="section-header"><h3>Active Users by Country (Top 5)</h3></div>', unsafe_allow_html=True)
+# Reuse GA4 traffic for country by substituting in fetch method if implemented
 
-st.subheader('Google Organic Search Traffic (Clicks)')
+st.write('<div class="section-header"><h3>Page & Screen Views</h3></div>', unsafe_allow_html=True)
 try:
-    sc_df = pd.DataFrame(fetch_sc_organic(SC_SITE_URL, sd, ed)).head(10)
-    st.dataframe(sc_df)
-except HttpError:
-    st.error('Search Console API error: check permissions & API enabled')
+    pv = fetch_ga4_pageviews(PROPERTY_ID, sd, ed)
+    st.table(pd.DataFrame(pv))
+except Exception:
+    st.error('Views not available for this property')
 
-st.subheader('Active Users by Country (Top 5)')
-st.table(pd.DataFrame(fetch_ga4_traffic(PROPERTY_ID, sd, ed)).head(5))
-
-st.subheader('Pages & Screens Views')
-try:
-    st.table(pd.DataFrame(fetch_ga4_pageviews(PROPERTY_ID, sd, ed)))
-except InvalidArgument:
-    st.error('GA4 API error: views not available')
-
-# Google My Business Analytics
-st.header('Google My Business Analytics')
-gmb = fetch_gmb_metrics(GMB_LOCATION_ID, sd, ed)
-if isinstance(gmb, dict) and 'error' in gmb:
-    st.error(f"Google My Business API Error: {gmb['error']}")
-else:
-    st.json(gmb)
+# =========================
+# FUTURE SOCIAL MEDIA ANALYTICS PLACEHOLDER
+# =========================
+st.write('<div class="section-header"><h2>Social Media Analytics (Coming Soon)</h2></div>', unsafe_allow_html=True)
