@@ -12,6 +12,7 @@ from googleapiclient.discovery import build
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
+from googleapiclient.errors import HttpError
 
 # =========================
 # CONFIGURATION
@@ -212,10 +213,14 @@ st.subheader('Traffic Acquisition by Channel')
 st.table(traf_df)
 
 # Organic Search Traffic
-org = fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date)
-org_df = pd.DataFrame(org)
 st.subheader('Google Organic Search Traffic (Clicks)')
-st.dataframe(org_df.head(10))
+try:
+    org_rows = fetch_sc_organic_traffic(SC_SITE_URL, start_date, end_date)
+    org = [{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in org_rows]
+    org_df = pd.DataFrame(org)
+    st.dataframe(org_df.head(10))
+except HttpError:
+    st.error("Search Console API error: please ensure the service account has been granted permission in Search Console and the API is enabled.")
 
 # Active Users by Country
 cnt = fetch_ga4_active_users_by_country(PROPERTY_ID, start_date, end_date)
