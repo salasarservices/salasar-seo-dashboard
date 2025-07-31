@@ -118,8 +118,8 @@ def fetch_sc_organic(site, sd, ed, limit=500):
 
 def fetch_gmb_metrics(location_id, start_date, end_date):
     """
-    Fetch Google My Business metrics for a location using GMB API.
-    Uses fetchMultiDailyMetricsTimeSeries with 'parent' parameter only.
+    Fetch Google My Business metrics using the appropriate API method.
+    Tries fetchMultiDailyMetricsTimeSeries with positional args; falls back to getDailyMetricsTimeSeries.
     """
     req_body = {
         'dailyMetricsOptions': {
@@ -132,20 +132,22 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
             ]
         }
     }
+    client = gmb_service.locations()
     try:
-        # Only use 'parent' arg; 'name' is not supported
-        response = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(
-            parent=f'locations/{location_id}',
-            body=req_body
-        ).execute()
+        # Positional args: location name then body
+        response = client.fetchMultiDailyMetricsTimeSeries(f'locations/{location_id}', req_body).execute()
         return response
+    except TypeError:
+        try:
+            # Fallback to getDailyMetricsTimeSeries
+            response = client.getDailyMetricsTimeSeries(f'locations/{location_id}', req_body).execute()
+            return response
+        except Exception as e:
+            return {'error': str(e)}
     except HttpError as err:
-        # Return structured error for display
         status = getattr(err, 'status_code', 'Unknown')
         details = getattr(err, 'error_details', '') or str(err)
         return {'error': f'HTTP {status}: {details}'}
-    except Exception as err:
-        return {'error': str(err)}
 
 # =========================
 # STREAMLIT LAYOUT
