@@ -221,13 +221,20 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
         }
     }
     # The Business Profile Performance API expects the location in the path
-    # Use the locations().reportInsights() method
-    response = gmb_service.locations().reportInsights(
-        name=f'locations/{location_id}',
-        body=req_body
-    ).execute()
-    # Return the insights response directly
-    return response
+    loc_resource = gmb_service.locations()
+    # DEBUG: list available methods on the locations() resource
+    st.write("Available GMB methods:", [m for m in dir(loc_resource) if not m.startswith('_')])
+    # Attempt to call reportInsights if available
+    try:
+        response = loc_resource.reportInsights(
+            name=f'locations/{location_id}',
+            body=req_body
+        ).execute()
+        return response
+    except AttributeError:
+        st.error("GMB API error: reportInsights() method not found on locations(); check the available methods above and adjust accordingly.")
+        return {}
+
 
 # =========================
 # STREAMLIT APP LAYOUT
