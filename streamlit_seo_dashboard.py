@@ -2,6 +2,7 @@
 # Minimalistic SEO & Reporting Dashboard with animated progress bars and styled tables
 
 import streamlit as st
+import textwrap
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
@@ -38,6 +39,10 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+def render_table(df):
+    html = df.to_html(index=False, classes='styled-table')
+    st.markdown(html, unsafe_allow_html=True)
+
 # =========================
 # CONFIGURATION & AUTHENTICATION
 # =========================
@@ -68,7 +73,6 @@ sc = build('searchconsole', 'v1', credentials=creds)
 # =========================
 # HELPER FUNCTIONS
 # =========================
-
 def pct_change(current, previous):
     if previous == 0:
         return 0
@@ -94,50 +98,72 @@ def date_ranges(month_sel=False):
 
 @st.cache_data(ttl=3600)
 def get_total_users(pid, sd, ed):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'metrics': [{'name': 'totalUsers'}]}
+    req = {'property': f'properties/{pid}',
+           'date_ranges': [{'start_date': sd, 'end_date': ed}],
+           'metrics': [{'name': 'totalUsers'}]}
     resp = ga4.run_report(request=req)
     return int(resp.rows[0].metric_values[0].value)
 
 @st.cache_data(ttl=3600)
 def get_sessions(pid, sd, ed):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'metrics': [{'name': 'sessions'}]}
+    req = {'property': f'properties/{pid}',
+           'date_ranges': [{'start_date': sd, 'end_date': ed}],
+           'metrics': [{'name': 'sessions'}]}
     resp = ga4.run_report(request=req)
     return int(resp.rows[0].metric_values[0].value)
 
 @st.cache_data(ttl=3600)
-def get_search_clicks(site, sd, ed):
-    body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page','query'], 'rowLimit': 500}
+def get_traffic(pid, sd, ed):
+    req = {
+        'property': f'properties/{pid}',
+        'date_ranges': [{'start_date': sd, 'end_date': ed}],
+        'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
+        'metrics': [{'name': 'sessions'}]
+    }
+    resp = ga4.run_report(request=req)
+    return [{'channel': row.dimension_values[0].value, 'sessions': int(row.metric_values[0].value)} for row in resp.rows]
+
+@st.cache_data(ttl=3600)
+def get_search_console(site, sd, ed, limit=10):
+    body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page','query'], 'rowLimit': limit}
     resp = sc.searchanalytics().query(siteUrl=site, body=body).execute()
-    clicks = sum(r.get('clicks',0) for r in resp.get('rows',[]))
-    return clicks
+    return resp.get('rows', [])
 
 @st.cache_data(ttl=3600)
 def get_active_users_by_country(pid, sd, ed, top_n=5):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'dimensions': [{'name': 'country'}], 'metrics': [{'name': 'activeUsers'}],
-           'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}], 'limit': top_n}
+    req = {'property': f'properties/{pid}',
+           'date_ranges': [{'start_date': sd, 'end_date': ed}],
+           'dimensions': [{'name': 'country'}],
+           'metrics': [{'name': 'activeUsers'}],
+           'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
+           'limit': top_n}
     resp = ga4.run_report(request=req)
     return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
 @st.cache_data(ttl=3600)
 def fetch_ga4_pageviews(pid, sd, ed, top_n=10):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'dimensions': [{'name':'pageTitle'},{'name':'screenClass'}], 'metrics':[{'name':'screenPageViews'}],
-           'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}], 'limit':top_n}
+    req = {
+        'property': f'properties/{pid}',
+        'date_ranges': [{'start_date': sd, 'end_date': ed}],
+        'dimensions': [{'name':'pageTitle'},{'name':'screenClass'}],
+        'metrics':[{'name':'screenPageViews'}],
+        'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],
+        'limit':top_n
+    }
     try:
         resp = ga4.run_report(request=req)
         return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
     except InvalidArgument:
-        req2 = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}],
-                'dimensions':[{'name':'pagePath'}], 'metrics':[{'name':'screenPageViews'}], 'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}], 'limit':top_n}
+        req2 = {
+            'property': f'properties/{pid}',
+            'date_ranges': [{'start_date': sd, 'end_date': ed}],
+            'dimensions':[{'name':'pagePath'}],
+            'metrics':[{'name':'screenPageViews'}],
+            'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],
+            'limit':top_n
+        }
         resp2 = ga4.run_report(request=req2)
-        return [{'pagePath': r.dimension_values[0].value, 'views':int(r.metric_values[0].value)} for r in resp2.rows]
-
-# render styled DataFrame
-
-def render_table(df):
-    html = df.to_html(index=False, classes='styled-table')
-    st.markdown(html, unsafe_allow_html=True)
+        return [{'pagePath': r.dimension_values[0].value, 'views': int(r.metric_values[0].value)} for r in resp2.rows]
 
 # =========================
 # SIDEBAR FILTERS
@@ -179,8 +205,8 @@ with col2:
 
 # Organic Clicks
 with col3:
-    cur3 = get_search_clicks(SC_SITE_URL, sd, ed)
-    prev3 = get_search_clicks(SC_SITE_URL, psd, ped)
+    cur3 = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, sd, ed))
+    prev3 = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, psd, ped))
     delta3 = pct_change(cur3, prev3)
     p3 = max(0, min(int(delta3), 100))
     bar3 = st.progress(0)
@@ -192,13 +218,12 @@ with col3:
 # =========================
 # DETAILED TABLES
 # =========================
+
 st.write('<div class="section-header"><h3>Active Users by Country (Top 5)</h3></div>', unsafe_allow_html=True)
 country_df = pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed))
 render_table(country_df)
 
 st.write('<div class="section-header"><h3>Traffic Acquisition by Channel</h3></div>', unsafe_allow_html=True)
-traf_df = pd.DataFrame([{'channel':r['channel'],'sessions':r['sessions']} for r in get_sessions(PROPERTY_ID, sd, ed)], columns=['channel','sessions'])
-# Actually use get_traffic
 traf_df = pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed))
 render_table(traf_df)
 
