@@ -152,29 +152,30 @@ def fetch_sc_organic(site, sd, ed, limit=500):
 
 def fetch_gmb_metrics(location_id, sd, ed):
     """
-    Fetch GMB metrics via Business Profile Performance API's getDailyMetricsTimeSeries method.
+    Fetch Google My Business metrics for a location using Python client.
+    Uses fetchMultiDailyMetricsTimeSeries method with specific metrics.
     """
-    req_body = {
-        'basicRequest': {
-            'timeRange': {
-                'startTime': f'{sd}T00:00:00Z',
-                'endTime': f'{ed}T23:59:59Z'
-            },
-            'metricRequests': [
-                {'metric': 'ALL'}
-            ]
-        }
-    }
+    # Parse dates
+    y1, m1, d1 = map(int, sd.split('-'))
+    y2, m2, d2 = map(int, ed.split('-'))
+    # Define metrics to retrieve
+    metrics = ['CALL_CLICKS', 'WEBSITE_CLICKS', 'BUSINESS_DIRECTION_REQUESTS']
     try:
-        response = gmb_service.locations().getDailyMetricsTimeSeries(
-            name=f'locations/{location_id}',
-            body=req_body
+        resp = gmb_service.locations().fetchMultiDailyMetricsTimeSeries(
+            location=f'locations/{location_id}',
+            dailyMetrics=metrics,
+            dailyRange_startDate_year=y1,
+            dailyRange_startDate_month=m1,
+            dailyRange_startDate_day=d1,
+            dailyRange_endDate_year=y2,
+            dailyRange_endDate_month=m2,
+            dailyRange_endDate_day=d2
         ).execute()
-        return response
+        return resp
     except HttpError as err:
         status = getattr(err, 'status_code', 'Unknown')
         details = getattr(err, 'error_details', '') or str(err)
-        return {'error': f'HTTP {status}: {details}' }
+        return {'error': f'HTTP {status}: {details}'}
     except Exception as e:
         return {'error': str(e)}
 
