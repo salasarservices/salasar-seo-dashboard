@@ -52,6 +52,10 @@ creds.refresh(GAuthRequest())
 
 ga4_client = BetaAnalyticsDataClient(credentials=creds)
 sc_service = build('searchconsole', 'v1', credentials=creds)
+# Initialize GMB client
+from googleapiclient.discovery import build as build_gmb
+# Use separate build to avoid shadowing
+gmb_service = build_gmb('businessprofileperformance', 'v1', credentials=creds)
 # gmb_service not used for HTTP fallback
 
 # =========================
