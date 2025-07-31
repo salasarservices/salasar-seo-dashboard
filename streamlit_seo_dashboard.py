@@ -226,7 +226,8 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
         name=f'locations/{location_id}',
         body=req_body
     ).execute()
-    return response.report(requestBody=req_body).execute()
+    # Return the insights response directly
+    return response(requestBody=req_body).execute()
 
 # =========================
 # STREAMLIT APP LAYOUT
