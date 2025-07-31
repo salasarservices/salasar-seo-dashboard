@@ -113,14 +113,16 @@ def fetch_sc_organic(site, sd, ed, limit=500):
     return [{'page':r['keys'][0],'query':r['keys'][1],'clicks':r.get('clicks',0)} for r in rows]
 
 # =========================
-# GMB FETCH
+# GMB FETCH (using direct HTTP request)
 # =========================
+import requests
+from google.auth.transport.requests import Request as GAuthRequest
 
 def fetch_gmb_metrics(location_id, start_date, end_date):
     """
-    Fetch Google My Business metrics using the appropriate API method.
-    Tries fetchMultiDailyMetricsTimeSeries with positional args; falls back to getDailyMetricsTimeSeries.
+    Fetch Google My Business metrics by making a direct HTTP POST to the Business Profile Performance API.
     """
+    # Prepare request body
     req_body = {
         'dailyMetricsOptions': {
             'timeRange': {
@@ -132,25 +134,18 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
             ]
         }
     }
-    client = gmb_service.locations()
-    try:
-        # Positional args: location name then body
-        response = client.fetchMultiDailyMetricsTimeSeries(f'locations/{location_id}', req_body).execute()
-        return response
-    except TypeError:
-        try:
-            # Fallback to getDailyMetricsTimeSeries
-            response = client.getDailyMetricsTimeSeries(f'locations/{location_id}', req_body).execute()
-            return response
-        except Exception as e:
-            return {'error': str(e)}
-    except HttpError as err:
-        status = getattr(err, 'status_code', 'Unknown')
-        details = getattr(err, 'error_details', '') or str(err)
-        return {'error': f'HTTP {status}: {details}'}
+    # Ensure credentials have a valid access token
+    creds.refresh(GAuthRequest())
+    url = f'https://businessprofileperformance.googleapis.com/v1/locations/{location_id}:fetchMultiDailyMetricsTimeSeries'
+    headers = {
+        'Authorization': f'Bearer {creds.token}',
+        'Content-Type': 'application/json'
+    }
+    response = requests.post(url, json=req_body, headers=headers)
+    if response.status_code != 200:
+        return {'error': f'Status {response.status_code}: {response.text}'}
+    return response.json()
 
-# =========================
-# STREAMLIT LAYOUT
 # =========================
 
 st.title('SEO & Reporting Dashboard')
