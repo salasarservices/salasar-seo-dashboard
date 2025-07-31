@@ -205,14 +205,28 @@ def fetch_sc_organic_traffic(site_url, start_date, end_date, row_limit=500):
 # =========================
 
 def fetch_gmb_metrics(location_id, start_date, end_date):
+    """
+    Fetch Google My Business metrics for a location between dates using the Business Profile Performance API.
+    """
+    # Build the request body for the API
     req_body = {
-        'locationNames': [f'locations/{location_id}'],
         'basicRequest': {
-            'metricRequests': [],  # TODO: add GMB metrics
-            'timeRange': {'startTime': f'{start_date}T00:00:00Z', 'endTime': f'{end_date}T23:59:59Z'}
+            'metricRequests': [
+                # TODO: e.g. {'metric': 'VIEWS'}, {'metric': 'SEARCH_IMPRESSIONS'}, etc.
+            ],
+            'timeRange': {
+                'startTime': f'{start_date}T00:00:00Z',
+                'endTime': f'{end_date}T23:59:59Z'
+            }
         }
     }
-    return gmb_service.businessprofileperformance().report(requestBody=req_body).execute()
+    # The Business Profile Performance API expects the location in the path
+    # Use the locations().reportInsights() method
+    response = gmb_service.locations().reportInsights(
+        name=f'locations/{location_id}',
+        body=req_body
+    ).execute()
+    return response.report(requestBody=req_body).execute()
 
 # =========================
 # STREAMLIT APP LAYOUT
