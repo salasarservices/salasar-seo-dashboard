@@ -23,112 +23,28 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    body {font-family: 'Arial', sans-serif;}
+    body {font-family: 'Arial', sans-serif; background-color: #ffffff;}
     .metric-container {padding: 1rem; background-color: #f9f9f9; border-radius: 8px;}
     .section-header {margin-top: 2rem; margin-bottom: 1rem;}
+    /* Styled table */
+    .styled-table {border-collapse: collapse; margin: 0; font-size: 0.9rem; width: 100%; border-radius: 5px 5px 0 0; overflow: hidden;}
+    .styled-table thead tr {background-color: #2d448d; color: #ffffff; text-align: left; border-bottom: 4px solid #459fda;}
+    .styled-table th, .styled-table td {padding: 12px 15px;}
+    .styled-table tbody tr {border-bottom: 1px solid #dddddd;}
+    .styled-table tbody tr:nth-of-type(even) {background-color: #f3f3f3;}
+    .styled-table tbody tr:nth-of-type(odd) {background-color: #ffffff;}
+    .styled-table tbody tr:hover {background-color: #a6ce39;}
     </style>
     """,
     unsafe_allow_html=True
 )
 
-# =========================
-# CONFIGURATION & AUTH
-# =========================
-PROPERTY_ID = '356205245'
-SC_SITE_URL = 'https://www.salasarservices.com/'
-SCOPES = [
-    'https://www.googleapis.com/auth/analytics.readonly',
-    'https://www.googleapis.com/auth/webmasters.readonly'
-]
-
-@st.cache_resource
-def get_credentials():
-    sa = st.secrets['gcp']['service_account']
-    info = dict(sa)
-    pk = info.get('private_key', '').replace('\\n', '\n')
-    if not pk.endswith('\n'):
-        pk += '\n'
-    info['private_key'] = pk
-    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-    creds.refresh(GAuthRequest())
-    return creds
-
-creds = get_credentials()
-ga4 = BetaAnalyticsDataClient(credentials=creds)
-sc = build('searchconsole', 'v1', credentials=creds)
-
-# =========================
-# HELPERS
-# =========================
-def pct_change(cur, prev):
-    return None if prev == 0 else (cur - prev) / prev * 100
-
-
-def date_ranges(month_sel=False):
-    if month_sel:
-        months, today, d = [], date.today(), date(2025, 1, 1)
-        while d <= today:
-            months.append(d)
-            d += relativedelta(months=1)
-        sel = st.sidebar.selectbox('Select Month', [m.strftime('%B %Y') for m in months])
-        sd = datetime.strptime(sel, '%B %Y').date().replace(day=1)
-        ed = sd + relativedelta(months=1) - timedelta(days=1)
-    else:
-        ed = date.today()
-        sd = ed - timedelta(days=30)
-    ped = sd - timedelta(days=1)
-    psd = ped - (ed - sd)
-    fmt = lambda x: x.strftime('%Y-%m-%d')
-    return fmt(sd), fmt(ed), fmt(psd), fmt(ped)
-
-# =========================
-# GA4 FETCH FUNCTIONS
-# =========================
-@st.cache_data(ttl=3600)
-def get_total_users(pid, sd, ed):
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'metrics': [{'name': 'totalUsers'}]}
-    return int(ga4.run_report(request=req).rows[0].metric_values[0].value)
-
-@st.cache_data(ttl=3600)
-def get_traffic(pid, sd, ed):
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
-           'metrics': [{'name': 'sessions'}]}
-    rows = ga4.run_report(request=req).rows
-    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in rows]
-
-@st.cache_data(ttl=3600)
-def get_active_users_by_country(pid, sd, ed, top_n=5):
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'dimensions': [{'name': 'country'}],
-           'metrics': [{'name': 'activeUsers'}],
-           'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
-           'limit': top_n}
-    rows = ga4.run_report(request=req).rows
-    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in rows]
-
-@st.cache_data(ttl=3600)
-def get_search_console(site, sd, ed, limit=10):
-    body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page', 'query'], 'rowLimit': limit}
-    resp = sc.searchanalytics().query(siteUrl=site, body=body).execute()
-    return resp.get('rows', [])
-
-# =========================
-# SIDEBAR CONTROLS
-# =========================
-with st.sidebar:
-    st.title('Filters')
-    month_sel = st.checkbox('Select Month (vs last 30 days)')
-    sd, ed, psd, ped = date_ranges(month_sel)
-
-# =========================
-# METRIC CARDS (3 columns)
-# =========================
-st.write('<div class="section-header"><h2>Website Analytics</h2></div>', unsafe_allow_html=True)
+def render_table(df):
+    """
+    Render a pandas DataFrame as a styled HTML table.
+    """
+    html = df.to_html(index=False, classes="styled-table")
+    st.markdown(html, unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
 
 # Total Users
