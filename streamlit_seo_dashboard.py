@@ -1,8 +1,7 @@
 # streamlit_seo_dashboard.py
-# Minimalistic SEO & Reporting Dashboard with animated progress bars and styled tables
+# Minimalistic SEO & Reporting Dashboard
 
 import streamlit as st
-import textwrap
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
@@ -15,48 +14,15 @@ import pandas as pd
 import time
 
 # =========================
-# PAGE CONFIGURATION & STYLES
+# PAGE CONFIGURATION
 # =========================
 st.set_page_config(
     page_title='SEO & Reporting Dashboard',
     layout='wide'
 )
-st.markdown(
-    """
-    <style>
-    body {font-family: 'Arial', sans-serif; background-color: #ffffff;}
-    .metric-container {padding: 0.5rem 1rem 1rem 1rem; background-color: #f9f9f9; border-radius: 8px; margin-bottom: 1rem;}
-    .section-header {margin-top: 2rem; margin-bottom: 1rem;}
-    .styled-table {border-collapse: collapse; width: 100%; border-radius: 5px 5px 0 0; overflow: hidden;}
-    .styled-table thead tr {background-color: #2d448d; color: #ffffff; text-align: left; border-bottom: 4px solid #459fda;}
-    .styled-table th, .styled-table td {padding: 12px 15px;}
-    .styled-table td {color: #000000 !important;}
-    .styled-table tbody tr {border-bottom: 1px solid #dddddd;}
-    .styled-table tbody tr:nth-of-type(even) {background-color: #f3f3f3;}
-    .styled-table tbody tr:nth-of-type(odd) {background-color: #ffffff;}
-    .styled-table tbody tr:hover {background-color: #a6ce39;}
-    /* Metric text styling */
-    .stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
-        font-size: 32px !important;
-        font-weight: bold !important;
-        color: #000000 !important;
-    }
-    /* Progress bar spacing */
-    .stProgress {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-</style>
-    """,
-    unsafe_allow_html=True
-)
-
-def render_table(df):
-    html = df.to_html(index=False, classes='styled-table')
-    st.markdown(html, unsafe_allow_html=True)
 
 # =========================
-# CONFIGURATION & AUTHENTICATION
+# AUTHENTICATION
 # =========================
 PROPERTY_ID = '356205245'
 SC_SITE_URL = 'https://www.salasarservices.com/'
@@ -69,7 +35,6 @@ SCOPES = [
 def get_credentials():
     sa = st.secrets['gcp']['service_account']
     info = dict(sa)
-    # Normalize private_key
     pk = info.get('private_key', '').replace('\\n', '\n')
     if not pk.endswith('\n'):
         pk += '\n'
@@ -83,12 +48,10 @@ ga4 = BetaAnalyticsDataClient(credentials=creds)
 sc = build('searchconsole', 'v1', credentials=creds)
 
 # =========================
-# HELPER FUNCTIONS
+# HELPERS
 # =========================
 def pct_change(current, previous):
-    if previous == 0:
-        return 0
-    return (current - previous) / previous * 100
+    return 0 if previous == 0 else (current - previous) / previous * 100
 
 
 def date_ranges(month_sel=False):
@@ -98,29 +61,26 @@ def date_ranges(month_sel=False):
             months.append(d)
             d += relativedelta(months=1)
         sel = st.sidebar.selectbox('Select Month', [m.strftime('%B %Y') for m in months])
-        start = datetime.strptime(sel, '%B %Y').date().replace(day=1)
-        end = start + relativedelta(months=1) - timedelta(days=1)
+        sd = datetime.strptime(sel, '%B %Y').date().replace(day=1)
+        ed = sd + relativedelta(months=1) - timedelta(days=1)
     else:
-        end = date.today()
-        start = end - timedelta(days=30)
-    prev_end = start - timedelta(days=1)
-    prev_start = prev_end - (end - start)
+        ed = date.today()
+        sd = ed - timedelta(days=30)
+    ped = sd - timedelta(days=1)
+    psd = ped - (ed - sd)
     fmt = lambda x: x.strftime('%Y-%m-%d')
-    return fmt(start), fmt(end), fmt(prev_start), fmt(prev_end)
+    return fmt(sd), fmt(ed), fmt(psd), fmt(ped)
 
+# =========================
+# DATA FETCH
+# =========================
 @st.cache_data(ttl=3600)
 def get_total_users(pid, sd, ed):
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'metrics': [{'name': 'totalUsers'}]}
-    resp = ga4.run_report(request=req)
-    return int(resp.rows[0].metric_values[0].value)
-
-@st.cache_data(ttl=3600)
-def get_sessions(pid, sd, ed):
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'metrics': [{'name': 'sessions'}]}
+    req = {
+        'property': f'properties/{pid}',
+        'date_ranges': [{'start_date': sd, 'end_date': ed}],
+        'metrics': [{'name': 'totalUsers'}]
+    }
     resp = ga4.run_report(request=req)
     return int(resp.rows[0].metric_values[0].value)
 
@@ -133,7 +93,7 @@ def get_traffic(pid, sd, ed):
         'metrics': [{'name': 'sessions'}]
     }
     resp = ga4.run_report(request=req)
-    return [{'channel': row.dimension_values[0].value, 'sessions': int(row.metric_values[0].value)} for row in resp.rows]
+    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
 
 @st.cache_data(ttl=3600)
 def get_search_console(site, sd, ed, limit=10):
@@ -143,42 +103,23 @@ def get_search_console(site, sd, ed, limit=10):
 
 @st.cache_data(ttl=3600)
 def get_active_users_by_country(pid, sd, ed, top_n=5):
-    req = {'property': f'properties/{pid}',
-           'date_ranges': [{'start_date': sd, 'end_date': ed}],
-           'dimensions': [{'name': 'country'}],
-           'metrics': [{'name': 'activeUsers'}],
-           'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
-           'limit': top_n}
-    resp = ga4.run_report(request=req)
-    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
-
-@st.cache_data(ttl=3600)
-def fetch_ga4_pageviews(pid, sd, ed, top_n=10):
     req = {
         'property': f'properties/{pid}',
         'date_ranges': [{'start_date': sd, 'end_date': ed}],
-        'dimensions': [{'name':'pageTitle'},{'name':'screenClass'}],
-        'metrics':[{'name':'screenPageViews'}],
-        'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],
-        'limit':top_n
+        'dimensions': [{'name': 'country'}],
+        'metrics': [{'name': 'activeUsers'}],
+        'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
+        'limit': top_n
     }
-    try:
-        resp = ga4.run_report(request=req)
-        return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
-    except InvalidArgument:
-        req2 = {
-            'property': f'properties/{pid}',
-            'date_ranges': [{'start_date': sd, 'end_date': ed}],
-            'dimensions':[{'name':'pagePath'}],
-            'metrics':[{'name':'screenPageViews'}],
-            'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],
-            'limit':top_n
-        }
-        resp2 = ga4.run_report(request=req2)
-        return [{'pagePath': r.dimension_values[0].value, 'views': int(r.metric_values[0].value)} for r in resp2.rows]
+    resp = ga4.run_report(request=req)
+    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
 # =========================
-# SIDEBAR FILTERS
+# STYLING UTILS REMOVED
+# =========================
+
+# =========================
+# SIDEBAR
 # =========================
 with st.sidebar:
     st.title('Filters')
@@ -186,71 +127,41 @@ with st.sidebar:
     sd, ed, psd, ped = date_ranges(month_sel)
 
 # =========================
-# METRIC CARDS
+# DASHBOARD LAYOUT
 # =========================
-st.write('<div class="section-header"><h2>Website Analytics</h2></div>', unsafe_allow_html=True)
-col1, col2, col3 = st.columns(3)
+st.title('SEO & Reporting Dashboard')
 
+st.header('Website Analytics')
 # Total Users
-with col1:
-    cur = get_total_users(PROPERTY_ID, sd, ed)
-    prev = get_total_users(PROPERTY_ID, psd, ped)
-    delta = pct_change(cur, prev)
-    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-    st.metric('Total Users', cur, f'{delta:.2f}%')
-    p = max(0, min(int(delta), 100))
-    bar = st.progress(0)
-    for i in range(p+1):
-        bar.progress(i)
-    st.markdown('</div>', unsafe_allow_html=True)
+cur = get_total_users(PROPERTY_ID, sd, ed)
+prev = get_total_users(PROPERTY_ID, psd, ped)
+delta = pct_change(cur, prev)
+st.metric('Total Users', cur, f"{delta:.2f}%")
 
 # Sessions
-with col2:
-    cur2 = get_sessions(PROPERTY_ID, sd, ed)
-    prev2 = get_sessions(PROPERTY_ID, psd, ped)
-    delta2 = pct_change(cur2, prev2)
-    p2 = max(0, min(int(delta2), 100))
-    bar2 = st.progress(0)
-    for i in range(p2+1): bar2.progress(i)
-    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-    st.metric('Sessions', cur2, f'{delta2:.2f}%')
-    st.markdown('</div>', unsafe_allow_html=True)
+traf = get_traffic(PROPERTY_ID, sd, ed)
+total = sum(item['sessions'] for item in traf)
+prev_total = sum(item['sessions'] for item in get_traffic(PROPERTY_ID, psd, ped))
+delta2 = pct_change(total, prev_total)
+st.metric('Sessions', total, f"{delta2:.2f}%")
 
-# Organic Clicks
-with col3:
-    cur3 = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, sd, ed))
-    prev3 = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, psd, ped))
-    delta3 = pct_change(cur3, prev3)
-    p3 = max(0, min(int(delta3), 100))
-    bar3 = st.progress(0)
-    for i in range(p3+1): bar3.progress(i)
-    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-    st.metric('Organic Clicks', cur3, f'{delta3:.2f}%')
-    st.markdown('</div>', unsafe_allow_html=True)
+# Organic Search
+sc_data = get_search_console(SC_SITE_URL, sd, ed)
+clicks = sum(r.get('clicks',0) for r in sc_data)
+prev_clicks = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, psd, ped))
+delta3 = pct_change(clicks, prev_clicks)
+st.metric('Organic Clicks', clicks, f"{delta3:.2f}%")
 
-# =========================
-# DETAILED TABLES
-# =========================
+# Detailed Tables
+st.subheader('Active Users by Country (Top 5)')
+st.table(pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed)))
 
-st.write('<div class="section-header"><h3>Active Users by Country (Top 5)</h3></div>', unsafe_allow_html=True)
-country_df = pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed))
-render_table(country_df)
+st.subheader('Traffic Acquisition by Channel')
+st.table(pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed)))
 
-st.write('<div class="section-header"><h3>Traffic Acquisition by Channel</h3></div>', unsafe_allow_html=True)
-traf_df = pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed))
-render_table(traf_df)
-
-st.write('<div class="section-header"><h3>Top 10 Organic Queries</h3></div>', unsafe_allow_html=True)
-sc_rows = get_search_console(SC_SITE_URL, sd, ed)
-sc_df = pd.DataFrame([{'page':r['keys'][0],'query':r['keys'][1],'clicks':r.get('clicks',0)} for r in sc_rows])
-render_table(sc_df.head(10))
-
-st.write('<div class="section-header"><h3>Page & Screen Views</h3></div>', unsafe_allow_html=True)
-try:
-    pv = fetch_ga4_pageviews(PROPERTY_ID, sd, ed)
-    render_table(pd.DataFrame(pv))
-except Exception:
-    st.error('Views not available for this property')
+st.subheader('Top 10 Organic Queries')
+sc_df = pd.DataFrame([{'page':r['keys'][0],'query':r['keys'][1],'clicks':r.get('clicks',0)} for r in sc_data])
+st.dataframe(sc_df.head(10))
 
 # Placeholder
-st.write('<div class="section-header"><h2>Social Media Analytics (Coming Soon)</h2></div>', unsafe_allow_html=True)
+st.header('Social Media Analytics (Coming Soon)')
