@@ -200,7 +200,7 @@ st.header('Website Analytics')
 
 # Total Users metric with MoM comparison
 cur_users = fetch_ga4_total_users(PROPERTY_ID, start_date, end_date)
-prev_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
+prev_users = fetch_ga4_total_users(PROPERTY_ID, prev_start, prev_end)
 delta_users = calculate_percentage_change(cur_users, prev_users)
 st.subheader('Total Users')
 st.metric(label='Users', value=cur_users, delta=f"{delta_users:.2f}%")
