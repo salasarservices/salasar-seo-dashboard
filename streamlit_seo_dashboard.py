@@ -1,5 +1,5 @@
 # streamlit_seo_dashboard.py
-# Minimalistic SEO & Reporting Dashboard with clean, wide layout
+# Minimalistic SEO & Reporting Dashboard with animated progress bars
 
 import streamlit as st
 from google.oauth2 import service_account
@@ -11,6 +11,7 @@ from google.auth.transport.requests import Request as GAuthRequest
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 import pandas as pd
+import time
 
 # =========================
 # PAGE CONFIGURATION & STYLES
@@ -65,7 +66,7 @@ def pct_change(cur, prev):
 
 def date_ranges(month_sel=False):
     if month_sel:
-        months, today, d = [], date.today(), date(2025,1,1)
+        months, today, d = [], date.today(), date(2025, 1, 1)
         while d <= today:
             months.append(d)
             d += relativedelta(months=1)
@@ -80,8 +81,9 @@ def date_ranges(month_sel=False):
     fmt = lambda x: x.strftime('%Y-%m-%d')
     return fmt(sd), fmt(ed), fmt(psd), fmt(ped)
 
-# Fetch functions
-
+# =========================
+# GA4 FETCH FUNCTIONS
+# =========================
 @st.cache_data(ttl=3600)
 def get_total_users(pid, sd, ed):
     req = {'property': f'properties/{pid}',
@@ -97,6 +99,17 @@ def get_traffic(pid, sd, ed):
            'metrics': [{'name': 'sessions'}]}
     rows = ga4.run_report(request=req).rows
     return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in rows]
+
+@st.cache_data(ttl=3600)
+def get_active_users_by_country(pid, sd, ed, top_n=5):
+    req = {'property': f'properties/{pid}',
+           'date_ranges': [{'start_date': sd, 'end_date': ed}],
+           'dimensions': [{'name': 'country'}],
+           'metrics': [{'name': 'activeUsers'}],
+           'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
+           'limit': top_n}
+    rows = ga4.run_report(request=req).rows
+    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in rows]
 
 @st.cache_data(ttl=3600)
 def get_search_console(site, sd, ed, limit=10):
@@ -117,29 +130,47 @@ with st.sidebar:
 # =========================
 st.write('<div class="section-header"><h2>Website Analytics</h2></div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
+
 # Total Users
 with col1:
     cur = get_total_users(PROPERTY_ID, sd, ed)
     prev = get_total_users(PROPERTY_ID, psd, ped)
     delta = pct_change(cur, prev)
+    fill = int(max(0, min(delta, 100)))
+    pb = st.progress(0)
+    for i in range(fill + 1):
+        pb.progress(i)
+        time.sleep(0.005)
     st.markdown('<div class="metric-container">', unsafe_allow_html=True)
     st.metric('Total Users', cur, f'{delta:.2f}%')
     st.markdown('</div>', unsafe_allow_html=True)
+
 # Sessions
 with col2:
     traf = get_traffic(PROPERTY_ID, sd, ed)
     total_sess = sum(item['sessions'] for item in traf)
     prev_sess = sum(item['sessions'] for item in get_traffic(PROPERTY_ID, psd, ped))
     delta2 = pct_change(total_sess, prev_sess)
+    fill2 = int(max(0, min(delta2, 100)))
+    pb2 = st.progress(0)
+    for i in range(fill2 + 1):
+        pb2.progress(i)
+        time.sleep(0.005)
     st.markdown('<div class="metric-container">', unsafe_allow_html=True)
     st.metric('Sessions', total_sess, f'{delta2:.2f}%')
     st.markdown('</div>', unsafe_allow_html=True)
+
 # Organic Clicks
 with col3:
     sc_rows = get_search_console(SC_SITE_URL, sd, ed)
     clicks = sum(r.get('clicks', 0) for r in sc_rows)
     prev_clicks = sum(r.get('clicks', 0) for r in get_search_console(SC_SITE_URL, psd, ped))
     delta3 = pct_change(clicks, prev_clicks)
+    fill3 = int(max(0, min(delta3, 100)))
+    pb3 = st.progress(0)
+    for i in range(fill3 + 1):
+        pb3.progress(i)
+        time.sleep(0.005)
     st.markdown('<div class="metric-container">', unsafe_allow_html=True)
     st.metric('Organic Clicks', clicks, f'{delta3:.2f}%')
     st.markdown('</div>', unsafe_allow_html=True)
@@ -147,15 +178,16 @@ with col3:
 # =========================
 # DETAILED TABLES
 # =========================
+st.write('<div class="section-header"><h3>Active Users by Country (Top 5)</h3></div>', unsafe_allow_html=True)
+country_df = pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed))
+st.table(country_df)
+
 st.write('<div class="section-header"><h3>Traffic Acquisition by Channel</h3></div>', unsafe_allow_html=True)
 st.table(pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed)))
 
 st.write('<div class="section-header"><h3>Top 10 Organic Queries</h3></div>', unsafe_allow_html=True)
 sc_df = pd.DataFrame([{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in sc_rows])
 st.dataframe(sc_df.head(10))
-
-st.write('<div class="section-header"><h3>Active Users by Country (Top 5)</h3></div>', unsafe_allow_html=True)
-# Reuse GA4 traffic for country by substituting in fetch method if implemented
 
 st.write('<div class="section-header"><h3>Page & Screen Views</h3></div>', unsafe_allow_html=True)
 try:
