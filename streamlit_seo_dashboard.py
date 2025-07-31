@@ -208,7 +208,6 @@ from googleapiclient.errors import HttpError
 def fetch_gmb_metrics(location_id, start_date, end_date):
     """
     Fetch Google My Business metrics for a location using the MultiDailyMetricsTimeSeries API.
-    Replace 'ALL' with specific metrics as needed, e.g. 'VIEWS', 'SEARCH_IMPRESSIONS'.
     """
     req_body = {
         'dailyMetricsOptions': {
@@ -228,18 +227,17 @@ def fetch_gmb_metrics(location_id, start_date, end_date):
         ).execute()
         return resp
     except HttpError as err:
-        st.error("GMB API error: ensure the service account has management access on the Business Profile and the API is enabled.")
-        return {}
+        # Return error details for display
+        return {'error': f'Status {err.status_code}; details: {err.error_details}'}
 
 # =========================
 # STREAMLIT APP LAYOUT
-# =========================
-
-# ... later in the layout ...
 
 st.header('Google My Business Analytics')
-try:
-    gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+gmb = fetch_gmb_metrics(GMB_LOCATION_ID, start_date, end_date)
+if isinstance(gmb, dict) and gmb.get('error'):
+    st.error(f"GMB API Error: {gmb['error']}")
+else:
     st.json(gmb)
 except Exception:
     st.error("Unable to load Google My Business data.")
