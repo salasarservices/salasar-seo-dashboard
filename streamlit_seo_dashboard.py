@@ -2,6 +2,7 @@
 # Minimalistic SEO & Reporting Dashboard with Styled Tables
 
 import streamlit as st
+import textwrap
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
@@ -76,7 +77,7 @@ SCOPES = [
 def get_credentials():
     sa = st.secrets['gcp']['service_account']
     info = dict(sa)
-    pk = info.get('private_key', '').replace('\n', '\n')
+    pk = info.get('private_key', '').replace('\\n', '\n')
     if not pk.endswith('\n'):
         pk += '\n'
     info['private_key'] = pk
