@@ -45,10 +45,7 @@ st.markdown("""
     color: #ffffff;
     text-align: left;
     border-bottom: 4px solid #459fda;
-}
-/* Table header cells uppercase white */
-table.styled-table thead th {
-    color: #ffffff !
+  }
   table.styled-table th, table.styled-table td {
     padding: 12px 15px;
     color: #2d448d !important;
