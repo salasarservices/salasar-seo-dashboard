@@ -237,24 +237,4 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.subheader('Active Users by Country' (Top 5)')
-styled_df = pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed))
-render_table(styled_df)
-
-st.subheader('Traffic Acquisition by Channel')
-styled_df2 = pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed))
-render_table(styled_df2)
-
-st.subheader('Top 10 Organic Queries')
-sc_data = get_search_console(SC_SITE_URL, sd, ed)
-sc_df = pd.DataFrame([{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in sc_data])
-render_table(sc_df.head(10))
-
-st.subheader('Page & Screen Views')
-try:
-    pv = fetch_ga4_pageviews(PROPERTY_ID, sd, ed)
-    render_table(pd.DataFrame(pv))
-except Exception:
-    st.error('Views not available for this property')
-
-st.header('Social Media Analytics (Coming Soon)')
+st.subheader('Active Users by Country (Top 5)')
