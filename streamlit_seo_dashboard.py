@@ -132,7 +132,7 @@ def get_search_console(site, sd, ed):
 
 @st.cache_data(ttl=3600)
 def get_active_users_by_country(pid, sd, ed, top_n=5):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'country'}], 'metrics': [{'name': 'ACTIVEUSERS100'}], 'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}], 'limit': top_n}
+    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'country'}], 'metrics': [{'name': 'activeUsers'}], 'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}], 'limit': top_n}
     resp = ga4.run_report(request=req)
     return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
