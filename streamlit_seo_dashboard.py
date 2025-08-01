@@ -203,24 +203,41 @@ with st.sidebar:
 st.title('SEO & Reporting Dashboard')
 
 st.header('Website Analytics')
+# Calculate metrics
 cur = get_total_users(PROPERTY_ID, sd, ed)
 prev = get_total_users(PROPERTY_ID, psd, ped)
 delta = pct_change(cur, prev)
-st.metric('Total Users', cur, f"{delta:.2f}%")
-
 traf = get_traffic(PROPERTY_ID, sd, ed)
 total = sum(item['sessions'] for item in traf)
 prev_total = sum(item['sessions'] for item in get_traffic(PROPERTY_ID, psd, ped))
 delta2 = pct_change(total, prev_total)
-st.metric('Sessions', total, f"{delta2:.2f}%")
-
 sc_data = get_search_console(SC_SITE_URL, sd, ed)
-clicks = sum(r.get('clicks',0) for r in sc_data)
-prev_clicks = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, psd, ped))
+clicks = sum(r.get('clicks', 0) for r in sc_data)
+prev_clicks = sum(r.get('clicks', 0) for r in get_search_console(SC_SITE_URL, psd, ped))
 delta3 = pct_change(clicks, prev_clicks)
-st.metric('Organic Clicks', clicks, f"{delta3:.2f}%")
 
-st.subheader('Active Users by Country (Top 5)')
+# Display metrics in colored circles
+st.markdown(f"""
+<div class="metric-row">
+  <div class="metric-circle bg-purple">
+    <div class="metric-title">TOTAL USERS</div>
+    <div class="metric-value">{cur}</div>
+    <div class="metric-change">{delta:.2f}%</div>
+  </div>
+  <div class="metric-circle bg-blue">
+    <div class="metric-title">SESSIONS</div>
+    <div class="metric-value">{total}</div>
+    <div class="metric-change">{delta2:.2f}%</div>
+  </div>
+  <div class="metric-circle bg-green">
+    <div class="metric-title">ORGANIC CLICKS</div>
+    <div class="metric-value">{clicks}</div>
+    <div class="metric-change">{delta3:.2f}%</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.subheader('Active Users by Country' (Top 5)')
 styled_df = pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed))
 render_table(styled_df)
 
