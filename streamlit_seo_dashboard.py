@@ -1,8 +1,7 @@
 # streamlit_seo_dashboard.py
-# Minimalistic SEO & Reporting Dashboard with Styled Tables
+# Minimalistic SEO & Reporting Dashboard with Styled Tables and Metric Circles
 
 import streamlit as st
-import textwrap
 from google.oauth2 import service_account
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from googleapiclient.discovery import build
@@ -25,15 +24,7 @@ st.set_page_config(
 st.markdown("""
 <style>
   body { font-family: Arial, sans-serif; background-color: #ffffff; }
-  /* Metric styling */
-  .stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
-    font-size: 32px !important;
-    font-weight: bold !important;
-    color: #000000 !important;
-  }
-  /* Progress bar spacing */
-  .stProgress { margin: 0 !important; padding: 0 !important; }
-  /* Circle metric layout */
+  /* Metric circles layout */
   .metric-row {
     display: flex;
     justify-content: space-around;
@@ -55,7 +46,7 @@ st.markdown("""
     font-size: 1.2rem;
     font-weight: bold;
     margin-bottom: 0.5rem;
-    color: #ffffff;
+    text-align: center;
   }
   .metric-value {
     font-size: 2rem;
@@ -68,7 +59,7 @@ st.markdown("""
   .bg-purple { background-color: #2d448d; }
   .bg-blue   { background-color: #459fda; }
   .bg-green  { background-color: #a6ce39; }
-  /* Styled-table definitions for render_table output */
+  /* Styled-table definitions */
   table.styled-table {
     border-collapse: collapse;
     width: 100%;
@@ -79,31 +70,25 @@ st.markdown("""
   table.styled-table thead tr {
     background-color: #2d448d;
     color: #ffffff;
-    text-align: left;
+    text-transform: uppercase;
     border-bottom: 4px solid #459fda;
   }
   table.styled-table th, table.styled-table td {
     padding: 12px 15px;
-    color: #2d448d !important;
+    color: #2d448d;
   }
-  table.styled-table tbody tr:nth-of-type(even) {
-    background-color: #f3f3f3;
-  }
-  table.styled-table tbody tr:nth-of-type(odd) {
-    background-color: #ffffff;
-  }
-  table.styled-table tbody tr:hover {
-    background-color: #a6ce39 !important;
-  }
+  table.styled-table tbody tr:nth-of-type(even) { background-color: #f3f3f3; }
+  table.styled-table tbody tr:nth-of-type(odd)  { background-color: #ffffff; }
+  table.styled-table tbody tr:hover { background-color: #a6ce39 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
 # AUTHENTICATION & CONFIG
 # =========================
-PROPERTY_ID = '356205245'
-SC_SITE_URL = 'https://www.salasarservices.com/'
-SCOPES = [
+PROPERTY_ID   = '356205245'
+SC_SITE_URL   = 'https://www.salasarservices.com/'
+SCOPES        = [
     'https://www.googleapis.com/auth/analytics.readonly',
     'https://www.googleapis.com/auth/webmasters.readonly'
 ]
@@ -121,14 +106,14 @@ def get_credentials():
     return creds
 
 creds = get_credentials()
-ga4 = BetaAnalyticsDataClient(credentials=creds)
-sc = build('searchconsole', 'v1', credentials=creds)
+ga4   = BetaAnalyticsDataClient(credentials=creds)
+sc    = build('searchconsole', 'v1', credentials=creds)
 
 # =========================
 # HELPERS & DATA FETCH
 # =========================
-def pct_change(current, previous):
-    return 0 if previous == 0 else (current - previous) / previous * 100
+def pct_change(cur, prev):
+    return 0 if prev == 0 else (cur - prev) / prev * 100
 
 
 def date_ranges(month_sel=False):
@@ -138,64 +123,65 @@ def date_ranges(month_sel=False):
             months.append(d)
             d += relativedelta(months=1)
         sel = st.sidebar.selectbox('Select Month', [m.strftime('%B %Y') for m in months])
-        start = datetime.strptime(sel, '%B %Y').date().replace(day=1)
-        end = start + relativedelta(months=1) - timedelta(days=1)
+        sd = datetime.strptime(sel, '%B %Y').date().replace(day=1)
+        ed = sd + relativedelta(months=1) - timedelta(days=1)
     else:
-        end = date.today()
-        start = end - timedelta(days=30)
-    prev_end = start - timedelta(days=1)
-    prev_start = prev_end - (end - start)
+        ed = date.today()
+        sd = ed - timedelta(days=30)
+    ped = sd - timedelta(days=1)
+    psd = ped - (ed - sd)
     fmt = lambda x: x.strftime('%Y-%m-%d')
-    return fmt(start), fmt(end), fmt(prev_start), fmt(prev_end)
+    return fmt(sd), fmt(ed), fmt(psd), fmt(ped)
 
 @st.cache_data(ttl=3600)
 def get_total_users(pid, sd, ed):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'metrics': [{'name': 'totalUsers'}]}
-    resp = ga4.run_report(request=req)
+    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'metrics': [{'name':'totalUsers'}]}
+    resp=ga4.run_report(request=req)
     return int(resp.rows[0].metric_values[0].value)
 
 @st.cache_data(ttl=3600)
 def get_traffic(pid, sd, ed):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'sessionDefaultChannelGroup'}], 'metrics': [{'name': 'sessions'}]}
-    resp = ga4.run_report(request=req)
-    return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
+    req={'property':f'properties/{pid}','date_ranges':[{'start_date':sd,'end_date':ed}],'dimensions':[{'name':'sessionDefaultChannelGroup'}],'metrics':[{'name':'sessions'}]}
+    resp=ga4.run_report(request=req)
+    return [{'channel':r.dimension_values[0].value,'sessions':int(r.metric_values[0].value)} for r in resp.rows]
 
 @st.cache_data(ttl=3600)
 def get_search_console(site, sd, ed):
-    body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page','query'], 'rowLimit': 500}
-    resp = sc.searchanalytics().query(siteUrl=site, body=body).execute()
-    return resp.get('rows', [])
+    body={'startDate':sd,'endDate':ed,'dimensions':['page','query'],'rowLimit':500}
+    resp=sc.searchanalytics().query(siteUrl=site, body=body).execute()
+    return resp.get('rows',[])
 
 @st.cache_data(ttl=3600)
 def get_active_users_by_country(pid, sd, ed, top_n=5):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'country'}], 'metrics': [{'name': 'activeUsers'}], 'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}], 'limit': top_n}
-    resp = ga4.run_report(request=req)
-    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
+    req={'property':f'properties/{pid}','date_ranges':[{'start_date':sd,'end_date':ed}],'dimensions':[{'name':'country'}],'metrics':[{'name':'activeUsers'}],'order_bys':[{'metric':{'metric_name':'activeUsers'},'desc':True}],'limit':top_n}
+    resp=ga4.run_report(request=req)
+    return [{'country':r.dimension_values[0].value,'activeUsers':int(r.metric_values[0].value)} for r in resp.rows]
 
 @st.cache_data(ttl=3600)
 def fetch_ga4_pageviews(pid, sd, ed, top_n=10):
-    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}], 'metrics': [{'name': 'screenPageViews'}], 'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}], 'limit': top_n}
+    req={'property':f'properties/{pid}','date_ranges':[{'start_date':sd,'end_date':ed}],'dimensions':[{'name':'pageTitle'},{'name':'screenClass'}],'metrics':[{'name':'screenPageViews'}],'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],'limit':top_n}
     try:
-        resp = ga4.run_report(request=req)
-        return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
+        resp=ga4.run_report(request=req)
+        return [{'pageTitle':r.dimension_values[0].value,'screenClass':r.dimension_values[1].value,'views':int(r.metric_values[0].value)} for r in resp.rows]
     except InvalidArgument:
-        req2 = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'pagePath'}], 'metrics': [{'name': 'screenPageViews'}], 'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}], 'limit': top_n}
-        resp2 = ga4.run_report(request=req2)
-        return [{'pagePath': r.dimension_values[0].value, 'views': int(r.metric_values[0].value)} for r in resp2.rows]
+        req2={'property':f'properties/{pid}','date_ranges':[{'start_date':sd,'end_date':ed}],'dimensions':[{'name':'pagePath'}],'metrics':[{'name':'screenPageViews'}],'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],'limit':top_n}
+        resp2=ga4.run_report(request=req2)
+        return [{'pagePath':r.dimension_values[0].value,'views':int(r.metric_values[0].value)} for r in resp2.rows]
+
 # =========================
 # RENDER TABLE UTILITY
 # =========================
 def render_table(df):
-    html = df.to_html(index=False, classes='styled-table')
-    st.markdown(html, unsafe_allow_html=True)
+    html=df.to_html(index=False,classes='styled-table')
+    st.markdown(html,unsafe_allow_html=True)
 
 # =========================
 # SIDEBAR FILTERS
 # =========================
 with st.sidebar:
     st.title('Filters')
-    month_sel = st.checkbox('Select Month (vs last 30 days)')
-    sd, ed, psd, ped = date_ranges(month_sel)
+    month_sel=st.checkbox('Select Month (vs last 30 days)')
+    sd,ed,psd,ped=date_ranges(month_sel)
 
 # =========================
 # DASHBOARD LAYOUT
@@ -203,20 +189,20 @@ with st.sidebar:
 st.title('SEO & Reporting Dashboard')
 
 st.header('Website Analytics')
-# Calculate metrics
+# Compute metrics
 cur = get_total_users(PROPERTY_ID, sd, ed)
 prev = get_total_users(PROPERTY_ID, psd, ped)
 delta = pct_change(cur, prev)
 traf = get_traffic(PROPERTY_ID, sd, ed)
-total = sum(item['sessions'] for item in traf)
-prev_total = sum(item['sessions'] for item in get_traffic(PROPERTY_ID, psd, ped))
+total = sum(x['sessions'] for x in traf)
+prev_total = sum(x['sessions'] for x in get_traffic(PROPERTY_ID, psd, ped))
 delta2 = pct_change(total, prev_total)
 sc_data = get_search_console(SC_SITE_URL, sd, ed)
-clicks = sum(r.get('clicks', 0) for r in sc_data)
-prev_clicks = sum(r.get('clicks', 0) for r in get_search_console(SC_SITE_URL, psd, ped))
+clicks = sum(r.get('clicks',0) for r in sc_data)
+prev_clicks = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, psd, ped))
 delta3 = pct_change(clicks, prev_clicks)
 
-# Display metrics in colored circles
+# Render metric circles
 st.markdown(f"""
 <div class="metric-row">
   <div class="metric-circle bg-purple">
@@ -237,4 +223,21 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# Tables
 st.subheader('Active Users by Country (Top 5)')
+render_table(pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed)))
+
+st.subheader('Traffic Acquisition by Channel')
+render_table(pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed)))
+
+st.subheader('Top 10 Organic Queries')
+sc_df=pd.DataFrame([{'page':r['keys'][0],'query':r['keys'][1],'clicks':r.get('clicks',0)} for r in get_search_console(SC_SITE_URL, sd, ed)])
+render_table(sc_df.head(10))
+
+st.subheader('Page & Screen Views')
+try:
+    render_table(pd.DataFrame(fetch_ga4_pageviews(PROPERTY_ID, sd, ed)))
+except:
+    st.error('Views not available')
+
+st.header('Social Media Analytics (Coming Soon)')
