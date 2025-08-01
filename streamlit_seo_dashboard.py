@@ -1,5 +1,5 @@
 # streamlit_seo_dashboard.py
-# Minimalistic SEO & Reporting Dashboard
+# Minimalistic SEO & Reporting Dashboard with Styled Tables
 
 import streamlit as st
 from google.oauth2 import service_account
@@ -14,85 +14,55 @@ import pandas as pd
 import time
 
 # =========================
-# PAGE CONFIGURATION
+# PAGE CONFIGURATION & CUSTOM STYLES
 # =========================
 st.set_page_config(
     page_title='SEO & Reporting Dashboard',
     layout='wide'
 )
-# =========================
-# CUSTOM STYLES
-# =========================
+
 st.markdown("""
 <style>
-    body {font-family: 'Arial', sans-serif; background-color: #ffffff;}
-    /* Metric styling */
-    .stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
-        font-size: 32px !important;
-        font-weight: bold !important;
-        color: #000000 !important;
-    }
-    /* Progress bar spacing */
-    .stProgress {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
-    /* Override st.table and st.dataframe tables */
-    .stTable table, .stDataFrame table {
-        border-collapse: collapse;
-        width: 100%;
-        border-radius: 5px 5px 0 0;
-        overflow: hidden;
-    }
-    .stTable thead tr, .stDataFrame thead tr {
-        background-color: #2d448d;
-        color: #ffffff;
-        text-align: left;
-        border-bottom: 4px solid #459fda;
-    }
-    .stTable th, .stTable td, .stDataFrame th, .stDataFrame td {
-        padding: 12px 15px;
-        color: #2d448d !important;
-    }
-    .stTable tbody tr, .stDataFrame tbody tr {
-        border-bottom: 1px solid #dddddd;
-    }
-    .stTable tbody tr:nth-of-type(even), .stDataFrame tbody tr:nth-of-type(even) {
-        background-color: #f3f3f3;
-    }
-    .stTable tbody tr:nth-of-type(odd), .stDataFrame tbody tr:nth-of-type(odd) {
-        background-color: #ffffff;
-    }
-    .stTable tbody tr:hover, .stDataFrame tbody tr:hover {
-        background-color: #a6ce39 !important;
-    }
-</style>
-""", unsafe_allow_html=True) {
-        background-color: #f3f3f3;
-    }
-    .styled-table tbody tr:nth-of-type(odd) {
-        background-color: #ffffff;
-    }
-    /* Hover state */
-    .styled-table tbody tr:hover {
-        background-color: #a6ce39;
-    }
-    /* Metric styling */
-    .stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
-        font-size: 32px !important;
-        font-weight: bold !important;
-        color: #000000 !important;
-    }
-    /* Progress bar spacing */
-    .stProgress {
-        margin: 0 !important;
-        padding: 0 !important;
-    }
+  body { font-family: Arial, sans-serif; background-color: #ffffff; }
+  /* Metric styling */
+  .stMetricText, .stMetricValue, .stMetricLabel, .stMetricDelta {
+    font-size: 32px !important;
+    font-weight: bold !important;
+    color: #000000 !important;
+  }
+  /* Progress bar spacing */
+  .stProgress { margin: 0 !important; padding: 0 !important; }
+  /* Table override */
+  .stTable table, .stDataFrame table {
+    border-collapse: collapse;
+    width: 100%;
+    border-radius: 5px 5px 0 0;
+    overflow: hidden;
+  }
+  .stTable thead tr, .stDataFrame thead tr {
+    background-color: #2d448d;
+    color: #ffffff;
+    text-align: left;
+    border-bottom: 4px solid #459fda;
+  }
+  .stTable th, .stTable td, .stDataFrame th, .stDataFrame td {
+    padding: 12px 15px;
+    color: #2d448d !important;
+  }
+  .stTable tbody tr:nth-of-type(even), .stDataFrame tbody tr:nth-of-type(even) {
+    background-color: #f3f3f3;
+  }
+  .stTable tbody tr:nth-of-type(odd), .stDataFrame tbody tr:nth-of-type(odd) {
+    background-color: #ffffff;
+  }
+  .stTable tbody tr:hover, .stDataFrame tbody tr:hover {
+    background-color: #a6ce39 !important;
+  }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# AUTHENTICATION
+# AUTHENTICATION & CONFIG
 # =========================
 PROPERTY_ID = '356205245'
 SC_SITE_URL = 'https://www.salasarservices.com/'
@@ -118,7 +88,7 @@ ga4 = BetaAnalyticsDataClient(credentials=creds)
 sc = build('searchconsole', 'v1', credentials=creds)
 
 # =========================
-# HELPERS
+# HELPERS & DATA FETCH
 # =========================
 def pct_change(current, previous):
     return 0 if previous == 0 else (current - previous) / previous * 100
@@ -131,75 +101,49 @@ def date_ranges(month_sel=False):
             months.append(d)
             d += relativedelta(months=1)
         sel = st.sidebar.selectbox('Select Month', [m.strftime('%B %Y') for m in months])
-        sd = datetime.strptime(sel, '%B %Y').date().replace(day=1)
-        ed = sd + relativedelta(months=1) - timedelta(days=1)
+        start = datetime.strptime(sel, '%B %Y').date().replace(day=1)
+        end = start + relativedelta(months=1) - timedelta(days=1)
     else:
-        ed = date.today()
-        sd = ed - timedelta(days=30)
-    ped = sd - timedelta(days=1)
-    psd = ped - (ed - sd)
+        end = date.today()
+        start = end - timedelta(days=30)
+    prev_end = start - timedelta(days=1)
+    prev_start = prev_end - (end - start)
     fmt = lambda x: x.strftime('%Y-%m-%d')
-    return fmt(sd), fmt(ed), fmt(psd), fmt(ped)
+    return fmt(start), fmt(end), fmt(prev_start), fmt(prev_end)
 
-# =========================
-# DATA FETCH
-# =========================
 @st.cache_data(ttl=3600)
 def get_total_users(pid, sd, ed):
-    req = {
-        'property': f'properties/{pid}',
-        'date_ranges': [{'start_date': sd, 'end_date': ed}],
-        'metrics': [{'name': 'totalUsers'}]
-    }
+    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'metrics': [{'name': 'totalUsers'}]}
     resp = ga4.run_report(request=req)
     return int(resp.rows[0].metric_values[0].value)
 
 @st.cache_data(ttl=3600)
 def get_traffic(pid, sd, ed):
-    req = {
-        'property': f'properties/{pid}',
-        'date_ranges': [{'start_date': sd, 'end_date': ed}],
-        'dimensions': [{'name': 'sessionDefaultChannelGroup'}],
-        'metrics': [{'name': 'sessions'}]
-    }
+    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'sessionDefaultChannelGroup'}], 'metrics': [{'name': 'sessions'}]}
     resp = ga4.run_report(request=req)
     return [{'channel': r.dimension_values[0].value, 'sessions': int(r.metric_values[0].value)} for r in resp.rows]
 
 @st.cache_data(ttl=3600)
-def get_search_console(site, sd, ed, limit=10):
-    body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page','query'], 'rowLimit': limit}
+def get_search_console(site, sd, ed):
+    body = {'startDate': sd, 'endDate': ed, 'dimensions': ['page','query'], 'rowLimit': 500}
     resp = sc.searchanalytics().query(siteUrl=site, body=body).execute()
     return resp.get('rows', [])
 
 @st.cache_data(ttl=3600)
 def get_active_users_by_country(pid, sd, ed, top_n=5):
-    req = {
-        'property': f'properties/{pid}',
-        'date_ranges': [{'start_date': sd, 'end_date': ed}],
-        'dimensions': [{'name': 'country'}],
-        'metrics': [{'name': 'activeUsers'}],
-        'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}],
-        'limit': top_n
-    }
+    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'country'}], 'metrics': [{'name': 'activeUsers'}], 'order_bys': [{'metric': {'metric_name': 'activeUsers'}, 'desc': True}], 'limit': top_n}
     resp = ga4.run_report(request=req)
     return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
 
 # =========================
-# STYLING UTILITIES
+# RENDER TABLE UTILITY
 # =========================
-
 def render_table(df):
-    """
-    Render a pandas DataFrame as an HTML table with the styled-table class.
-    """
     html = df.to_html(index=False, classes='styled-table')
     st.markdown(html, unsafe_allow_html=True)
 
 # =========================
-# =========================
-
-# =========================
-# SIDEBAR
+# SIDEBAR FILTERS
 # =========================
 with st.sidebar:
     st.title('Filters')
@@ -212,36 +156,40 @@ with st.sidebar:
 st.title('SEO & Reporting Dashboard')
 
 st.header('Website Analytics')
-# Total Users
 cur = get_total_users(PROPERTY_ID, sd, ed)
 prev = get_total_users(PROPERTY_ID, psd, ped)
 delta = pct_change(cur, prev)
 st.metric('Total Users', cur, f"{delta:.2f}%")
 
-# Sessions
 traf = get_traffic(PROPERTY_ID, sd, ed)
 total = sum(item['sessions'] for item in traf)
 prev_total = sum(item['sessions'] for item in get_traffic(PROPERTY_ID, psd, ped))
 delta2 = pct_change(total, prev_total)
 st.metric('Sessions', total, f"{delta2:.2f}%")
 
-# Organic Search
 sc_data = get_search_console(SC_SITE_URL, sd, ed)
 clicks = sum(r.get('clicks',0) for r in sc_data)
 prev_clicks = sum(r.get('clicks',0) for r in get_search_console(SC_SITE_URL, psd, ped))
 delta3 = pct_change(clicks, prev_clicks)
 st.metric('Organic Clicks', clicks, f"{delta3:.2f}%")
 
-# Detailed Tables
 st.subheader('Active Users by Country (Top 5)')
-st.table(pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed)))
+styled_df = pd.DataFrame(get_active_users_by_country(PROPERTY_ID, sd, ed))
+render_table(styled_df)
 
 st.subheader('Traffic Acquisition by Channel')
-st.table(pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed)))
+styled_df2 = pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed))
+render_table(styled_df2)
 
 st.subheader('Top 10 Organic Queries')
 sc_df = pd.DataFrame([{'page':r['keys'][0],'query':r['keys'][1],'clicks':r.get('clicks',0)} for r in sc_data])
-st.dataframe(sc_df.head(10))
+render_table(sc_df.head(10))
 
-# Placeholder
+st.subheader('Page & Screen Views')
+try:
+    pv = fetch_ga4_pageviews(PROPERTY_ID, sd, ed)
+    render_table(pd.DataFrame(pv))
+except Exception:
+    st.error('Views not available for this property')
+
 st.header('Social Media Analytics (Coming Soon)')
