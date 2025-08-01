@@ -138,31 +138,40 @@ def get_active_users_by_country(pid, sd, ed, top_n=5):
 
 @st.cache_data(ttl=3600)
 def fetch_ga4_pageviews(pid, sd, ed, top_n=10):
+    """
+    Fetch top N page titles + screen classes by views, fallback to pagePath.
+    """
     req = {
         'property': f'properties/{pid}',
         'date_ranges': [{'start_date': sd, 'end_date': ed}],
-        'dimensions': [{'name':'pageTitle'},{'name':'screenClass'}],
-        'metrics':[{'name':'screenPageViews'}],
-        'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],
-        'limit':top_n
+        'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
+        'metrics': [{'name': 'screenPageViews'}],
+        'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
+        'limit': top_n
     }
     try:
         resp = ga4.run_report(request=req)
-        return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
+        return [
+            {'pageTitle': r.dimension_values[0].value,
+             'screenClass': r.dimension_values[1].value,
+             'views': int(r.metric_values[0].value)}
+            for r in resp.rows
+        ]
     except InvalidArgument:
         req2 = {
             'property': f'properties/{pid}',
             'date_ranges': [{'start_date': sd, 'end_date': ed}],
-            'dimensions':[{'name':'pagePath'}],
-            'metrics':[{'name':'screenPageViews'}],
-            'order_bys':[{'metric':{'metric_name':'screenPageViews'},'desc':True}],
-            'limit':top_n
+            'dimensions': [{'name': 'pagePath'}],
+            'metrics': [{'name': 'screenPageViews'}],
+            'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
+            'limit': top_n
         }
         resp2 = ga4.run_report(request=req2)
-        return [{'pagePath': r.dimension_values[0].value, 'views': int(r.metric_values[0].value)} for r in resp2.rows]
-    resp = ga4.run_report(request=req)
-    return [{'country': r.dimension_values[0].value, 'activeUsers': int(r.metric_values[0].value)} for r in resp.rows]
-
+        return [
+            {'pagePath': r.dimension_values[0].value,
+             'views': int(r.metric_values[0].value)}
+            for r in resp2.rows
+        ]
 # =========================
 # RENDER TABLE UTILITY
 # =========================
