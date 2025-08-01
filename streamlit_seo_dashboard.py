@@ -32,30 +32,31 @@ st.markdown("""
   }
   /* Progress bar spacing */
   .stProgress { margin: 0 !important; padding: 0 !important; }
-  /* Table override */
-  .stTable table, .stDataFrame table {
+  /* Styled-table definitions for render_table output */
+  table.styled-table {
     border-collapse: collapse;
     width: 100%;
     border-radius: 5px 5px 0 0;
     overflow: hidden;
+    font-family: Arial, sans-serif;
   }
-  .stTable thead tr, .stDataFrame thead tr {
+  table.styled-table thead tr {
     background-color: #2d448d;
     color: #ffffff;
     text-align: left;
     border-bottom: 4px solid #459fda;
   }
-  .stTable th, .stTable td, .stDataFrame th, .stDataFrame td {
+  table.styled-table th, table.styled-table td {
     padding: 12px 15px;
     color: #2d448d !important;
   }
-  .stTable tbody tr:nth-of-type(even), .stDataFrame tbody tr:nth-of-type(even) {
+  table.styled-table tbody tr:nth-of-type(even) {
     background-color: #f3f3f3;
   }
-  .stTable tbody tr:nth-of-type(odd), .stDataFrame tbody tr:nth-of-type(odd) {
+  table.styled-table tbody tr:nth-of-type(odd) {
     background-color: #ffffff;
   }
-  .stTable tbody tr:hover, .stDataFrame tbody tr:hover {
+  table.styled-table tbody tr:hover {
     background-color: #a6ce39 !important;
   }
 </style>
