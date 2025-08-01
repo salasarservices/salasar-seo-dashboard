@@ -33,6 +33,41 @@ st.markdown("""
   }
   /* Progress bar spacing */
   .stProgress { margin: 0 !important; padding: 0 !important; }
+  /* Circle metric layout */
+  .metric-row {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    margin: 2rem 0;
+  }
+  .metric-circle {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #ffffff;
+    margin: 0 1rem;
+  }
+  .metric-title {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    color: #ffffff;
+  }
+  .metric-value {
+    font-size: 2rem;
+    font-weight: bold;
+  }
+  .metric-change {
+    margin-top: 0.5rem;
+    font-size: 1rem;
+  }
+  .bg-purple { background-color: #2d448d; }
+  .bg-blue   { background-color: #459fda; }
+  .bg-green  { background-color: #a6ce39; }
   /* Styled-table definitions for render_table output */
   table.styled-table {
     border-collapse: collapse;
@@ -47,13 +82,7 @@ st.markdown("""
     text-align: left;
     border-bottom: 4px solid #459fda;
   }
-  table.styled-table th {
-    color: #ffffff;
-    text-transform: uppercase;
-    text-align: center;
-  }
-  
-  table.styled-table td {
+  table.styled-table th, table.styled-table td {
     padding: 12px 15px;
     color: #2d448d !important;
   }
