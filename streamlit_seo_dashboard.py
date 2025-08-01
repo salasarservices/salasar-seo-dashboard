@@ -76,7 +76,7 @@ SCOPES = [
 def get_credentials():
     sa = st.secrets['gcp']['service_account']
     info = dict(sa)
-    pk = info.get('private_key', '').replace('\\n', '\n')
+    pk = info.get('private_key', '').replace('\n', '\n')
     if not pk.endswith('\n'):
         pk += '\n'
     info['private_key'] = pk
@@ -138,40 +138,14 @@ def get_active_users_by_country(pid, sd, ed, top_n=5):
 
 @st.cache_data(ttl=3600)
 def fetch_ga4_pageviews(pid, sd, ed, top_n=10):
-    """
-    Fetch top N page titles + screen classes by views, fallback to pagePath.
-    """
-    req = {
-        'property': f'properties/{pid}',
-        'date_ranges': [{'start_date': sd, 'end_date': ed}],
-        'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}],
-        'metrics': [{'name': 'screenPageViews'}],
-        'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
-        'limit': top_n
-    }
+    req = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'pageTitle'}, {'name': 'screenClass'}], 'metrics': [{'name': 'screenPageViews'}], 'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}], 'limit': top_n}
     try:
         resp = ga4.run_report(request=req)
-        return [
-            {'pageTitle': r.dimension_values[0].value,
-             'screenClass': r.dimension_values[1].value,
-             'views': int(r.metric_values[0].value)}
-            for r in resp.rows
-        ]
+        return [{'pageTitle': r.dimension_values[0].value, 'screenClass': r.dimension_values[1].value, 'views': int(r.metric_values[0].value)} for r in resp.rows]
     except InvalidArgument:
-        req2 = {
-            'property': f'properties/{pid}',
-            'date_ranges': [{'start_date': sd, 'end_date': ed}],
-            'dimensions': [{'name': 'pagePath'}],
-            'metrics': [{'name': 'screenPageViews'}],
-            'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}],
-            'limit': top_n
-        }
+        req2 = {'property': f'properties/{pid}', 'date_ranges': [{'start_date': sd, 'end_date': ed}], 'dimensions': [{'name': 'pagePath'}], 'metrics': [{'name': 'screenPageViews'}], 'order_bys': [{'metric': {'metric_name': 'screenPageViews'}, 'desc': True}], 'limit': top_n}
         resp2 = ga4.run_report(request=req2)
-        return [
-            {'pagePath': r.dimension_values[0].value,
-             'views': int(r.metric_values[0].value)}
-            for r in resp2.rows
-        ]
+        return [{'pagePath': r.dimension_values[0].value, 'views': int(r.metric_values[0].value)} for r in resp2.rows]
 # =========================
 # RENDER TABLE UTILITY
 # =========================
@@ -219,7 +193,6 @@ styled_df2 = pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed))
 render_table(styled_df2)
 
 st.subheader('Top 10 Organic Queries')
-# Re-fetch sc_data to ensure fresh data
 sc_data = get_search_console(SC_SITE_URL, sd, ed)
 sc_df = pd.DataFrame([{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in sc_data])
 render_table(sc_df.head(10))
