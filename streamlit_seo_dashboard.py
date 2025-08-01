@@ -49,7 +49,8 @@ st.markdown("""
   }
   table.styled-table th, table.styled-table td {
     padding: 12px 15px;
-    color: #2d448d !important;
+    color: #ffffff;      /* white text */
+    text-transform: uppercase;
   }
   table.styled-table tbody tr:nth-of-type(even) {
     background-color: #f3f3f3;
