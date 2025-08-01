@@ -210,8 +210,10 @@ styled_df2 = pd.DataFrame(get_traffic(PROPERTY_ID, sd, ed))
 render_table(styled_df2)
 
 st.subheader('Top 10 Organic Queries')
-sc_df = pd.DataFrame([{'page':r['keys'][0],'query':r['keys'][1],'clicks':r.get('clicks',0)} for r in sc_data])
-render_table(sc_df.head(10))
+# Re-fetch sc_data to ensure fresh data
+sc_data = get_search_console(SC_SITE_URL, sd, ed)
+sc_df = pd.DataFrame([{'page': r['keys'][0], 'query': r['keys'][1], 'clicks': r.get('clicks', 0)} for r in sc_data])
+render_table(sc_df.head(10))(10))
 
 st.subheader('Page & Screen Views')
 try:
