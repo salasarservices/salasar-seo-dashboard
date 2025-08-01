@@ -44,7 +44,7 @@ st.markdown("""
   table.styled-table thead tr {
     background-color: #2d448d;
     color: #ffffff;
-    text-align: left;
+    text-align: center;
     border-bottom: 4px solid #459fda;
   }
   table.styled-table th {
