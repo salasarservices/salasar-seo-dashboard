@@ -44,12 +44,13 @@ st.markdown("""
   table.styled-table thead tr {
     background-color: #2d448d;
     color: #ffffff;
-    text-align: center;
+    text-align: left;
     border-bottom: 4px solid #459fda;
   }
   table.styled-table th {
     color: #ffffff;
     text-transform: uppercase;
+    text-align: center;
   }
   
   table.styled-table td {
